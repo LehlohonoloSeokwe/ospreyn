@@ -1,0 +1,3 @@
+# SPA fallback, duplicated from netlify.toml so the build still routes
+# correctly if the TOML is ever replaced by UI-configured settings.
+/*    /index.html   200
