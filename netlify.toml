@@ -1,0 +1,41 @@
+# Netlify configuration for the Ospreyn frontend.
+#
+# This site is the static React build only. The API, PostgreSQL database and
+# object storage are deployed separately; see DEPLOYMENT.md.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  # VITE_API_BASE_URL is intentionally not set here. Set it per-context in
+  # Site configuration > Environment variables so production and previews can
+  # point at different API hosts, and so the value is not committed.
+
+# Single-page app fallback. Without this, refreshing /dashboard, /songs/<id>
+# or /review/<token> returns a 404 from the CDN, because no such file exists.
+# Placed last so it never shadows a real asset.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+
+# Vite fingerprints filenames, so hashed assets can be cached indefinitely.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"

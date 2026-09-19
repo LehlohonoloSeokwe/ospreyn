@@ -1,0 +1,16 @@
+node_modules/
+dist/
+dist-server/
+build/
+coverage/
+.DS_Store
+*.log
+
+# Never commit real environment files. .env.example is the documented template.
+.env
+.env.*
+!.env.example
+
+.netlify/
+.vite/
+*.tsbuildinfo
