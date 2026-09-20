@@ -191,39 +191,3 @@ CREATE TABLE IF NOT EXISTS audit_events (
 CREATE INDEX IF NOT EXISTS idx_audit_org ON audit_events(organisation_id);
 CREATE INDEX IF NOT EXISTS idx_audit_song ON audit_events(song_id);
 CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_events(entity_type, entity_id);
-
--- 15. Sessions (server-side session store for cookie auth)
-CREATE TABLE IF NOT EXISTS sessions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE NOT NULL,
-    token_hash VARCHAR(64) UNIQUE NOT NULL, -- SHA-256 of the raw session token; raw value never stored
-    user_agent VARCHAR(255),
-    ip_address VARCHAR(45),
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    expires_at TIMESTAMPTZ NOT NULL,
-    revoked_at TIMESTAMPTZ
-);
-CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
-CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
-
--- Document vault upload lifecycle.
--- A row is created as 'pending' when a presigned upload URL is issued, and only
--- becomes 'stored' once the object is confirmed present in object storage.
--- checksum is the SHA-256 of the actual file bytes, computed by the client and
--- verified against the object store's recorded digest. It is NULL until then.
-ALTER TABLE documents ADD COLUMN IF NOT EXISTS upload_status VARCHAR(20) NOT NULL DEFAULT 'pending';
-ALTER TABLE documents ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ;
-ALTER TABLE documents ALTER COLUMN checksum DROP NOT NULL;
-ALTER TABLE documents ALTER COLUMN file_size DROP NOT NULL;
-
-DO $$ BEGIN
-    ALTER TABLE documents ADD CONSTRAINT documents_upload_status_check
-        CHECK (upload_status IN ('pending', 'stored', 'failed'));
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-CREATE INDEX IF NOT EXISTS idx_songs_org ON songs(organisation_id);
-CREATE INDEX IF NOT EXISTS idx_versions_song ON rights_record_versions(song_id);
-CREATE INDEX IF NOT EXISTS idx_alloc_version ON ownership_allocations(version_id);
-CREATE INDEX IF NOT EXISTS idx_invitations_token ON invitations(token_hash);
-CREATE INDEX IF NOT EXISTS idx_documents_song ON documents(song_id);
-CREATE INDEX IF NOT EXISTS idx_contributors_org ON contributors(organisation_id);

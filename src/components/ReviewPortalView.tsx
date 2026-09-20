@@ -10,13 +10,11 @@ import {
   Send,
   Lock,
 } from 'lucide-react';
-import { api, ApiError } from '../lib/api';
 
 interface ReviewPortalViewProps {
   token: string;
-  /** Present only when the portal is opened from inside the workspace. */
-  onExit?: () => void;
-  onRefreshParent?: () => void;
+  onExit: () => void;
+  onRefreshParent: () => void;
 }
 
 export const ReviewPortalView: React.FC<ReviewPortalViewProps> = ({
@@ -39,13 +37,15 @@ export const ReviewPortalView: React.FC<ReviewPortalViewProps> = ({
     setLoading(true);
     setError(null);
     try {
-      setData(await api.get(`/invitations/review/${token}`));
-    } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? err.message
-          : 'Could not reach Ospreyn. Check your connection and open the link again.',
-      );
+      const res = await fetch(`/api/invitations/review/${token}`);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Invalid or expired invitation token.');
+      }
+      const json = await res.json();
+      setData(json);
+    } catch (err: any) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -59,13 +59,23 @@ export const ReviewPortalView: React.FC<ReviewPortalViewProps> = ({
     if (!hasAgreedCheck) return;
     setSubmitting(true);
     try {
-      const json = await api.post(`/invitations/review/${token}/confirm`, {
-        action: 'confirmed',
+      const res = await fetch(`/api/invitations/review/${token}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'confirmed',
+          notes: 'Confirmed via Ospreyn Contributor Review Portal',
+        }),
       });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Failed to submit confirmation.');
+      }
+      const json = await res.json();
       setSubmittedResult(json);
-      onRefreshParent?.();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not submit your confirmation.');
+      onRefreshParent();
+    } catch (err: any) {
+      setError(err.message);
     } finally {
       setSubmitting(false);
     }
@@ -76,14 +86,23 @@ export const ReviewPortalView: React.FC<ReviewPortalViewProps> = ({
     if (!changeNotes.trim()) return;
     setSubmitting(true);
     try {
-      const json = await api.post(`/invitations/review/${token}/confirm`, {
-        action: 'change_requested',
-        notes: changeNotes.trim(),
+      const res = await fetch(`/api/invitations/review/${token}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'change_requested',
+          notes: changeNotes.trim(),
+        }),
       });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Failed to request changes.');
+      }
+      const json = await res.json();
       setSubmittedResult(json);
-      onRefreshParent?.();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not submit your change request.');
+      onRefreshParent();
+    } catch (err: any) {
+      setError(err.message);
     } finally {
       setSubmitting(false);
     }
@@ -106,14 +125,12 @@ export const ReviewPortalView: React.FC<ReviewPortalViewProps> = ({
         <AlertTriangle className="h-8 w-8 text-rose-400 mx-auto" />
         <h3 className="text-base font-semibold text-white">Review Invitation Unavailable</h3>
         <p className="text-xs text-[#8c94a0]">{error}</p>
-        {onExit && (
-          <button
-            onClick={onExit}
-            className="rounded border border-[#282f3d] bg-[#141820] text-white px-4 py-1.5 text-xs cursor-pointer"
-          >
-            Return to dashboard
-          </button>
-        )}
+        <button
+          onClick={onExit}
+          className="rounded border border-[#282f3d] bg-[#141820] text-white px-4 py-1.5 text-xs cursor-pointer"
+        >
+          Return to Dashboard
+        </button>
       </div>
     );
   }
@@ -124,17 +141,13 @@ export const ReviewPortalView: React.FC<ReviewPortalViewProps> = ({
     <div className="max-w-3xl mx-auto space-y-6 py-6">
       {/* Top Header for Reviewer */}
       <div className="flex items-center justify-between border-b border-[#1f242e] pb-4">
-        {onExit ? (
-          <button
-            onClick={onExit}
-            className="inline-flex items-center gap-1.5 text-xs text-[#8c94a0] hover:text-white transition-colors cursor-pointer"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            <span>Exit review</span>
-          </button>
-        ) : (
-          <span className="text-xs text-[#8c94a0]">Reviewing as {data.contributor.fullName}</span>
-        )}
+        <button
+          onClick={onExit}
+          className="inline-flex items-center gap-1.5 text-xs text-[#8c94a0] hover:text-white transition-colors cursor-pointer"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          <span>Exit Review Portal</span>
+        </button>
 
         <div className="flex items-center gap-2">
           <Shield className="h-4 w-4 text-[#e6b359]" />
@@ -154,27 +167,20 @@ export const ReviewPortalView: React.FC<ReviewPortalViewProps> = ({
             {submittedResult.action === 'confirmed' ? 'Contribution & Splits Confirmed' : 'Change Request Registered'}
           </h2>
           <p className="text-xs text-[#a0a8b5] max-w-md mx-auto">
-            {submittedResult.message ||
-              'Your response has been recorded against this version, with a timestamp and the address you sent it from.'}
+            {submittedResult.message || 'Your response has been sealed into the immutable rights audit ledger.'}
           </p>
           <div className="rounded bg-[#0c0e12] border border-[#202735] p-3 max-w-md mx-auto text-left font-mono text-[11px] text-[#8c94a0] space-y-1">
             <div>Work: {song.title}</div>
             <div>Contributor: {contributor.fullName}</div>
             <div>Timestamp: {new Date().toUTCString()}</div>
-            <div>Recorded: yes</div>
+            <div>Audit Status: Logged</div>
           </div>
-          {onExit ? (
-            <button
-              onClick={onExit}
-              className="rounded bg-[#e6b359] px-4 py-2 text-xs font-semibold text-[#0c0e12] cursor-pointer"
-            >
-              Return to catalogue
-            </button>
-          ) : (
-            <p className="text-[11px] text-[#5e6675]">
-              You can close this page. The record owner has been notified in their audit trail.
-            </p>
-          )}
+          <button
+            onClick={onExit}
+            className="rounded bg-[#e6b359] text-[#0c0e12] px-4 py-2 text-xs font-semibold cursor-pointer"
+          >
+            Return to Catalogue
+          </button>
         </div>
       ) : (
         <>

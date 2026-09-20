@@ -1,0 +1,8 @@
+{
+  "name": "Ospreyn",
+  "description": "Digital music rights-recording and documentation platform for independent artists, producers, and music teams.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

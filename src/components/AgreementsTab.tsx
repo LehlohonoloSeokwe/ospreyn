@@ -13,7 +13,11 @@ import {
   RightsRecordVersion,
   Agreement,
   RightsValidationSummary,
+  OwnershipAllocation,
+  ContributorConfirmation,
+  Contributor,
 } from '../types';
+import { downloadSplitAgreementPdf } from '../lib/pdfGenerator';
 
 interface AgreementsTabProps {
   song: Song;
@@ -21,6 +25,9 @@ interface AgreementsTabProps {
   agreements: Agreement[];
   validation: RightsValidationSummary | null;
   onGenerateAgreement: () => Promise<void>;
+  allocations?: OwnershipAllocation[];
+  confirmations?: ContributorConfirmation[];
+  contributors?: Contributor[];
 }
 
 export const AgreementsTab: React.FC<AgreementsTabProps> = ({
@@ -29,9 +36,13 @@ export const AgreementsTab: React.FC<AgreementsTabProps> = ({
   agreements,
   validation,
   onGenerateAgreement,
+  allocations = [],
+  confirmations = [],
+  contributors = [],
 }) => {
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [selectedAgrId, setSelectedAgrId] = useState<string | null>(
     agreements.length > 0 ? agreements[agreements.length - 1].id : null
   );
@@ -55,7 +66,25 @@ export const AgreementsTab: React.FC<AgreementsTabProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDownload = () => {
+  const handleDownloadPdf = () => {
+    if (!activeAgreement) return;
+    setDownloadingPdf(true);
+    try {
+      downloadSplitAgreementPdf({
+        song,
+        agreement: activeAgreement,
+        allocations,
+        contributors,
+        confirmations,
+      });
+    } catch (err) {
+      console.error('Failed to generate agreement PDF:', err);
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  const handleDownloadMd = () => {
     if (!activeAgreement) return;
     const blob = new Blob([activeAgreement.documentContent], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -156,11 +185,20 @@ export const AgreementsTab: React.FC<AgreementsTabProps> = ({
                   <span>{copied ? 'Copied' : 'Copy'}</span>
                 </button>
                 <button
-                  onClick={handleDownload}
-                  className="flex items-center gap-1 rounded bg-[#161a22] hover:bg-[#1e2430] px-2.5 py-1 text-[11px] text-[#c5cbd4] hover:text-white transition-colors"
+                  onClick={handleDownloadPdf}
+                  disabled={downloadingPdf}
+                  className="flex items-center gap-1.5 rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-3 py-1 text-[11px] font-semibold transition-colors cursor-pointer"
+                  title="Generate certified PDF split sheet"
                 >
                   <Download className="h-3 w-3" />
-                  <span>Download .md</span>
+                  <span>{downloadingPdf ? 'Generating PDF...' : 'Download Agreement (PDF)'}</span>
+                </button>
+                <button
+                  onClick={handleDownloadMd}
+                  className="flex items-center gap-1 rounded border border-[#252b36] bg-[#161a22] hover:bg-[#1e2430] px-2.5 py-1 text-[11px] text-[#9aa3b2] hover:text-white transition-colors cursor-pointer"
+                  title="Download raw Markdown format"
+                >
+                  <span>.md</span>
                 </button>
               </div>
             </div>

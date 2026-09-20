@@ -1,317 +1,371 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import {
-  Navigate,
-  Route,
-  Routes,
-  useNavigate,
-  useParams,
-} from 'react-router-dom';
-import { AuditEvent, Organisation, Song, User } from './types';
-import { api, ApiError } from './lib/api';
+import React, { useState, useEffect } from 'react';
+import { User, Organisation, Song, AuditEvent } from './types';
 import { Header } from './components/Header';
 import { DashboardView } from './components/DashboardView';
 import { CreateSongModal } from './components/CreateSongModal';
 import { RightsRecordView } from './components/RightsRecordView';
 import { ExportModal } from './components/ExportModal';
 import { ReviewPortalView } from './components/ReviewPortalView';
-import { LoginView } from './components/LoginView';
-
-interface Metrics {
-  totalSongs: number;
-  completedCount: number;
-  needsAttentionCount: number;
-  awaitingConfirmationCount: number;
-  recentActivity: AuditEvent[];
-}
-
-const EMPTY_METRICS: Metrics = {
-  totalSongs: 0,
-  completedCount: 0,
-  needsAttentionCount: 0,
-  awaitingConfirmationCount: 0,
-  recentActivity: [],
-};
-
-type AuthState = 'checking' | 'authenticated' | 'anonymous';
-
-const Spinner: React.FC = () => (
-  <div className="flex h-64 items-center justify-center">
-    <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#e6b359] border-t-transparent" />
-  </div>
-);
+import { LandingPageView } from './components/LandingPageView';
 
 export default function App() {
-  const navigate = useNavigate();
-
-  const [authState, setAuthState] = useState<AuthState>('checking');
   const [user, setUser] = useState<User | null>(null);
   const [currentOrg, setCurrentOrg] = useState<Organisation | null>(null);
-  const [role, setRole] = useState<string | undefined>();
   const [songs, setSongs] = useState<Song[]>([]);
-  const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [metrics, setMetrics] = useState<{
+    totalSongs: number;
+    completedCount: number;
+    needsAttentionCount: number;
+    awaitingConfirmationCount: number;
+    recentActivity: AuditEvent[];
+  }>({
+    totalSongs: 0,
+    completedCount: 0,
+    needsAttentionCount: 0,
+    awaitingConfirmationCount: 0,
+    recentActivity: [],
+  });
 
-  const loadWorkspace = useCallback(async () => {
+  const [loading, setLoading] = useState(true);
+  const [selectedSongId, setSelectedSongId] = useState<string | null>(null);
+  const [selectedSongDetail, setSelectedSongDetail] = useState<any>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  // Landing page vs Workspace view state
+  const [isLandingView, setIsLandingView] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      if (window.location.pathname.startsWith('/review/')) return false;
+      if (window.location.hash === '#workspace' || window.location.hash === '#dashboard') return false;
+    }
+    return false; // Start on dashboard for immediate app access, while home tab is easily accessible
+  });
+
+  // Review portal state
+  const [activeReviewToken, setActiveReviewToken] = useState<string | null>(() => {
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/review/')) {
+      return window.location.pathname.replace('/review/', '');
+    }
+    return null;
+  });
+
+  // Modal states
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportData, setExportData] = useState<any>(null);
+
+  // Fetch current user and catalogue data
+  const loadDashboardData = async () => {
     try {
-      const data = await api.get('/me');
+      const res = await fetch('/api/me');
+      if (!res.ok) throw new Error('Failed to fetch dashboard data');
+      const data = await res.json();
       setUser(data.user);
       setCurrentOrg(data.organisation);
-      setRole(data.role);
-      setSongs(data.songs || []);
-      setMetrics({ ...EMPTY_METRICS, ...data.metrics });
-      setAuthState('authenticated');
+      setSongs(data.songs);
+      setMetrics(data.metrics);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        setAuthState('anonymous');
-      } else {
-        console.error('Could not load workspace:', err);
-        setAuthState('anonymous');
-      }
+      console.error('Error loading dashboard data:', err);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  // Fetch full song details when selected
+  const loadSongDetail = async (songId: string) => {
+    setDetailLoading(true);
+    try {
+      const res = await fetch(`/api/songs/${songId}`);
+      if (!res.ok) throw new Error('Failed to load song details');
+      const data = await res.json();
+      setSelectedSongDetail(data);
+    } catch (err) {
+      console.error('Error loading song detail:', err);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDashboardData();
   }, []);
 
   useEffect(() => {
-    void loadWorkspace();
-  }, [loadWorkspace]);
+    if (selectedSongId) {
+      loadSongDetail(selectedSongId);
+    } else {
+      setSelectedSongDetail(null);
+    }
+  }, [selectedSongId]);
 
-  const handleSignOut = async () => {
-    await api.post('/auth/logout').catch(() => undefined);
-    setUser(null);
-    setCurrentOrg(null);
-    setSongs([]);
-    setMetrics(EMPTY_METRICS);
-    setAuthState('anonymous');
-    navigate('/login', { replace: true });
+  // Actions
+  const handleCreateSong = async (payload: {
+    title: string;
+    primaryArtist: string;
+    releaseDate?: string;
+    genre?: string;
+    isrc?: string;
+    catalogueReference?: string;
+    notes?: string;
+  }) => {
+    const res = await fetch('/api/songs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to create rights record');
+    }
+    const data = await res.json();
+    await loadDashboardData();
+    setSelectedSongId(data.song.id);
   };
 
-  const handleCreateSong = async (payload: Record<string, unknown>) => {
-    const song = await api.post('/songs', payload);
-    await loadWorkspace();
-    setIsCreateModalOpen(false);
-    navigate(`/songs/${song.id}`);
+  const handleUpdateSongMetadata = async (data: Partial<Song>) => {
+    if (!selectedSongId) return;
+    const res = await fetch(`/api/songs/${selectedSongId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update metadata');
+    }
+    await loadSongDetail(selectedSongId);
+    await loadDashboardData();
   };
 
-  const shell = (children: React.ReactNode) => (
+  const handleSaveOwnership = async (allocations: Array<{ contributorId: string; rightType: 'COMPOSITION' | 'MASTER'; basisPoints: number }>) => {
+    if (!selectedSongId) return;
+    const res = await fetch(`/api/songs/${selectedSongId}/ownership`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ allocations }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      const err: any = new Error(json.error || 'Failed to save ownership');
+      if (json.requiresVersionBump) err.requiresVersionBump = true;
+      throw err;
+    }
+    await loadSongDetail(selectedSongId);
+    await loadDashboardData();
+  };
+
+  const handleBumpVersion = async (changeReason: string) => {
+    if (!selectedSongId) return;
+    const res = await fetch(`/api/songs/${selectedSongId}/bump-version`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ changeReason }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to create new rights record version');
+    }
+    await loadSongDetail(selectedSongId);
+    await loadDashboardData();
+  };
+
+  const handleAddContributor = async (data: any) => {
+    if (!selectedSongId) return;
+    const res = await fetch(`/api/songs/${selectedSongId}/contributors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to add contributor');
+    }
+    await loadSongDetail(selectedSongId);
+  };
+
+  const handleRemoveContributor = async (songContributorId: string) => {
+    if (!selectedSongId) return;
+    const res = await fetch(`/api/songs/${selectedSongId}/contributors/${songContributorId}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to remove contributor');
+    }
+    await loadSongDetail(selectedSongId);
+  };
+
+  const handleSendInvitations = async (contributorIds: string[]) => {
+    if (!selectedSongId) return;
+    const res = await fetch(`/api/songs/${selectedSongId}/invitations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contributorIds }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to send invitations');
+    }
+    const json = await res.json();
+    await loadSongDetail(selectedSongId);
+    await loadDashboardData();
+    return json;
+  };
+
+  const handleGenerateAgreement = async () => {
+    if (!selectedSongId) return;
+    const res = await fetch(`/api/songs/${selectedSongId}/agreements`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to generate split agreement');
+    }
+    await loadSongDetail(selectedSongId);
+    await loadDashboardData();
+  };
+
+  const handleUploadDocument = async (data: any) => {
+    if (!selectedSongId) return;
+    const res = await fetch(`/api/songs/${selectedSongId}/documents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to save document metadata');
+    }
+    await loadSongDetail(selectedSongId);
+  };
+
+  const handleOpenExportModal = async () => {
+    if (!selectedSongId) return;
+    try {
+      const res = await fetch(`/api/songs/${selectedSongId}/export`);
+      if (!res.ok) throw new Error('Failed to export evidence package');
+      const data = await res.json();
+      setExportData(data);
+      setIsExportModalOpen(true);
+    } catch (err) {
+      console.error('Export error:', err);
+    }
+  };
+
+  return (
     <div className="min-h-screen bg-[#090a0d] text-[#c5cbd4] antialiased selection:bg-[#e6b359]/30 selection:text-[#e6b359]">
+      {/* Top Application Header */}
       <Header
         user={user}
         currentOrg={currentOrg}
-        role={role}
-        activeView="app"
-        onOpenCreateModal={() => setIsCreateModalOpen(true)}
-        onGoHome={() => navigate('/')}
-        onSignOut={handleSignOut}
+        activeView={
+          activeReviewToken
+            ? 'review'
+            : isLandingView
+            ? 'landing'
+            : selectedSongId
+            ? 'record'
+            : 'dashboard'
+        }
+        onOpenCreateModal={() => {
+          setIsLandingView(false);
+          setIsCreateModalOpen(true);
+        }}
+        onGoHome={() => {
+          setIsLandingView(false);
+          setSelectedSongId(null);
+          setActiveReviewToken(null);
+        }}
+        onGoLanding={() => {
+          setIsLandingView(true);
+          setSelectedSongId(null);
+          setActiveReviewToken(null);
+        }}
       />
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">{children}</main>
+
+      {/* Main Viewport */}
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        {loading ? (
+          <div className="flex h-64 items-center justify-center">
+            <div className="h-6 w-6 border-2 border-[#e6b359] border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : activeReviewToken ? (
+          /* View 3: External Collaborator Review Portal */
+          <ReviewPortalView
+            token={activeReviewToken}
+            onExit={() => {
+              setActiveReviewToken(null);
+              loadDashboardData();
+              if (selectedSongId) loadSongDetail(selectedSongId);
+            }}
+            onRefreshParent={() => {
+              loadDashboardData();
+              if (selectedSongId) loadSongDetail(selectedSongId);
+            }}
+          />
+        ) : isLandingView ? (
+          /* View 0: Public Landing & Explanation Page */
+          <LandingPageView
+            onEnterApp={() => setIsLandingView(false)}
+            onOpenDemoReview={() => setActiveReviewToken('demo-token-kabelo-2026')}
+          />
+        ) : selectedSongId && selectedSongDetail ? (
+          /* View 2: Rights Record Workspace */
+          <RightsRecordView
+            song={selectedSongDetail.song}
+            versions={selectedSongDetail.versions}
+            currentVersion={selectedSongDetail.currentVersion}
+            songContributors={selectedSongDetail.songContributors}
+            allocations={selectedSongDetail.allocations}
+            validation={selectedSongDetail.validation}
+            confirmations={selectedSongDetail.confirmations}
+            invitations={selectedSongDetail.invitations}
+            agreements={selectedSongDetail.agreements}
+            documents={selectedSongDetail.documents}
+            audit={selectedSongDetail.audit}
+            onBack={() => {
+              setSelectedSongId(null);
+              loadDashboardData();
+            }}
+            onUpdateSongMetadata={handleUpdateSongMetadata}
+            onSaveOwnership={handleSaveOwnership}
+            onBumpVersion={handleBumpVersion}
+            onAddContributor={handleAddContributor}
+            onRemoveContributor={handleRemoveContributor}
+            onSendInvitations={handleSendInvitations}
+            onGenerateAgreement={handleGenerateAgreement}
+            onUploadDocument={handleUploadDocument}
+            onOpenExportModal={handleOpenExportModal}
+            onOpenReviewPortal={(rawToken) => setActiveReviewToken(rawToken)}
+          />
+        ) : (
+          /* View 1: Catalogue Dashboard */
+          <DashboardView
+            user={user}
+            songs={songs}
+            metrics={metrics}
+            onSelectSong={(id) => setSelectedSongId(id)}
+            onOpenCreateModal={() => setIsCreateModalOpen(true)}
+            onOpenReviewPortal={(rawToken) => setActiveReviewToken(rawToken)}
+          />
+        )}
+      </main>
+
+      {/* Global Modals */}
       <CreateSongModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onSubmit={handleCreateSong}
       />
-    </div>
-  );
 
-  const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    if (authState === 'checking') {
-      return (
-        <div className="min-h-screen bg-[#090a0d]">
-          <Spinner />
-        </div>
-      );
-    }
-    if (authState === 'anonymous') return <Navigate to="/login" replace />;
-    return <>{children}</>;
-  };
-
-  return (
-    <Routes>
-      {/* Public: contributors follow a link here and never sign in. */}
-      <Route path="/review/:token" element={<ReviewPortalRoute />} />
-
-      <Route
-        path="/login"
-        element={
-          authState === 'authenticated' ? (
-            <Navigate to="/" replace />
-          ) : (
-            <LoginView
-              onSignedIn={async () => {
-                await loadWorkspace();
-                navigate('/', { replace: true });
-              }}
-            />
-          )
-        }
-      />
-
-      <Route
-        path="/"
-        element={
-          <RequireAuth>
-            {shell(
-              <DashboardView
-                user={user}
-                songs={songs}
-                metrics={metrics}
-                onSelectSong={(id: string) => navigate(`/songs/${id}`)}
-                onOpenCreateModal={() => setIsCreateModalOpen(true)}
-              />,
-            )}
-          </RequireAuth>
-        }
-      />
-
-      <Route
-        path="/songs/:songId"
-        element={
-          <RequireAuth>
-            {shell(<SongRoute onWorkspaceChanged={loadWorkspace} />)}
-          </RequireAuth>
-        }
-      />
-
-      {/* Legacy in-app paths and anything unrecognised return to the dashboard. */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
-  );
-}
-
-/**
- * The rights record workspace. Reads its song id from the URL, so a refresh or
- * a pasted link lands on the same record.
- */
-const SongRoute: React.FC<{ onWorkspaceChanged: () => Promise<void> }> = ({
-  onWorkspaceChanged,
-}) => {
-  const { songId } = useParams<{ songId: string }>();
-  const navigate = useNavigate();
-
-  const [detail, setDetail] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportData, setExportData] = useState<any>(null);
-
-  const load = useCallback(async () => {
-    if (!songId) return;
-    setLoading(true);
-    try {
-      setDetail(await api.get(`/songs/${songId}`));
-      setNotFound(false);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) setNotFound(true);
-      else console.error('Could not load rights record:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [songId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const refresh = async () => {
-    await load();
-    await onWorkspaceChanged();
-  };
-
-  if (loading && !detail) return <Spinner />;
-
-  if (notFound) {
-    return (
-      <div className="rounded border border-[#1f242e] bg-[#0e1116] p-8 text-center">
-        <p className="text-sm text-white">This rights record is not available.</p>
-        <p className="mt-1 text-xs text-[#8c94a0]">
-          It may have been removed, or it belongs to another workspace.
-        </p>
-        <button
-          onClick={() => navigate('/')}
-          className="mt-4 rounded bg-[#e6b359] px-3.5 py-1.5 text-xs font-semibold text-[#0c0e12]"
-        >
-          Back to catalogue
-        </button>
-      </div>
-    );
-  }
-
-  if (!detail) return <Spinner />;
-
-  return (
-    <>
-      <RightsRecordView
-        song={detail.song}
-        versions={detail.versions}
-        currentVersion={detail.currentVersion}
-        songContributors={detail.songContributors}
-        allocations={detail.allocations}
-        validation={detail.validation}
-        confirmations={detail.confirmations}
-        invitations={detail.invitations}
-        agreements={detail.agreements}
-        documents={detail.documents}
-        audit={detail.audit}
-        onBack={() => navigate('/')}
-        onUpdateSongMetadata={async (data: any) => {
-          await api.put(`/songs/${songId}`, data);
-          await refresh();
-        }}
-        onSaveOwnership={async (allocations: any) => {
-          await api.post(`/songs/${songId}/ownership`, { allocations });
-          await refresh();
-        }}
-        onBumpVersion={async (changeReason: string) => {
-          await api.post(`/songs/${songId}/bump-version`, { changeReason });
-          await refresh();
-        }}
-        onAddContributor={async (data: any) => {
-          await api.post(`/songs/${songId}/contributors`, data);
-          await refresh();
-        }}
-        onRemoveContributor={async (songContributorId: string) => {
-          await api.delete(`/songs/${songId}/contributors/${songContributorId}`);
-          await refresh();
-        }}
-        onSendInvitations={async (contributorIds: string[]) => {
-          const result = await api.post(`/songs/${songId}/invitations`, { contributorIds });
-          await refresh();
-          return result;
-        }}
-        onGenerateAgreement={async () => {
-          await api.post(`/songs/${songId}/agreements`);
-          await refresh();
-        }}
-        onUploadDocument={refresh}
-        songId={songId!}
-        onOpenExportModal={async () => {
-          setExportData(await api.get(`/songs/${songId}/export`));
-          setIsExportModalOpen(true);
-        }}
-      />
-
-      {isExportModalOpen && (
+      {isExportModalOpen && selectedSongDetail && (
         <ExportModal
           isOpen={isExportModalOpen}
           onClose={() => setIsExportModalOpen(false)}
-          song={detail.song}
+          song={selectedSongDetail.song}
           exportData={exportData}
         />
       )}
-    </>
-  );
-};
-
-/**
- * The contributor review portal. Deliberately outside the authenticated shell:
- * an invited collaborator has a link, not an account.
- */
-const ReviewPortalRoute: React.FC = () => {
-  const { token } = useParams<{ token: string }>();
-
-  return (
-    <div className="min-h-screen bg-[#090a0d] text-[#c5cbd4] antialiased">
-      <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
-        <ReviewPortalView token={token!} onExit={undefined} onRefreshParent={() => undefined} />
-      </main>
     </div>
   );
-};
+}

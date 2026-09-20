@@ -131,6 +131,7 @@ export interface Invitation {
   songId: string;
   contributorId: string;
   versionId: string;
+  tokenHash: string; // SHA-256 hash (raw token is never stored in DB)
   status: InvitationStatus;
   invitedAt: string;
   expiresAt: string;
@@ -139,19 +140,7 @@ export interface Invitation {
   createdBy: string;
   // Joined for UI display
   contributor?: Contributor;
-}
-
-/**
- * Returned once, from the invitation creation endpoint only. The raw token is
- * never stored and can never be retrieved again.
- */
-export interface IssuedInvitationLink {
-  invitationId: string;
-  rawToken: string;
-  reviewUrl: string;
-  contributorName: string;
-  email: string;
-  expiresAt: string;
+  rawToken?: string; // only returned in creation response for URL generation
 }
 
 export type ConfirmationAction = 'confirmed' | 'change_requested';
@@ -198,8 +187,6 @@ export type DocumentCategory =
   | 'supporting_document' 
   | 'other';
 
-export type DocumentUploadStatus = 'pending' | 'stored' | 'failed';
-
 export interface DocumentRecord {
   id: string;
   songId: string;
@@ -207,13 +194,9 @@ export interface DocumentRecord {
   storageKey: string;
   fileName: string;
   mimeType: string;
-  /** Null until object storage confirms what actually landed. */
-  fileSize: number | null;
-  /** SHA-256 of the stored bytes. Null until the upload is confirmed. */
-  checksum: string | null;
+  fileSize: number;
+  checksum: string; // SHA-256 checksum
   category: DocumentCategory;
-  uploadStatus: DocumentUploadStatus;
-  uploadedAt?: string | null;
   uploadedBy: string;
   createdAt: string;
 }
