@@ -52,9 +52,9 @@ interface RightsRecordViewProps {
   onRemoveContributor: (scId: string) => Promise<void>;
   onSendInvitations: (contributorIds: string[]) => Promise<any>;
   onGenerateAgreement: () => Promise<void>;
-  onUploadDocument: (data: any) => Promise<void>;
+  onUploadDocument: () => Promise<void>;
+  songId: string;
   onOpenExportModal: () => void;
-  onOpenReviewPortal: (rawToken: string) => void;
 }
 
 export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
@@ -78,8 +78,8 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
   onSendInvitations,
   onGenerateAgreement,
   onUploadDocument,
+  songId,
   onOpenExportModal,
-  onOpenReviewPortal,
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'ownership' | 'contributors' | 'agreements' | 'documents' | 'audit'>('overview');
 
@@ -503,7 +503,6 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
           onAddContributor={onAddContributor}
           onRemoveContributor={onRemoveContributor}
           onSendInvitations={onSendInvitations}
-          onOpenReviewPortal={onOpenReviewPortal}
         />
       )}
 
@@ -513,9 +512,6 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
           currentVersion={currentVersion}
           agreements={agreements}
           validation={validation}
-          allocations={allocations}
-          confirmations={confirmations}
-          contributors={songContributors.map((sc) => sc.contributor!).filter(Boolean)}
           onGenerateAgreement={onGenerateAgreement}
         />
       )}
@@ -523,6 +519,7 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
       {activeTab === 'documents' && (
         <DocumentVaultTab
           song={song}
+          songId={songId}
           currentVersion={currentVersion}
           documents={documents}
           onUploadDocument={onUploadDocument}

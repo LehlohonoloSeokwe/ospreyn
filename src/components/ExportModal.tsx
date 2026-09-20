@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { X, Download, Copy, Check, ShieldCheck, FileArchive, FileText } from 'lucide-react';
+import { X, Download, Copy, Check, ShieldCheck, FileArchive } from 'lucide-react';
 import { Song } from '../types';
-import { downloadEvidencePackagePdf } from '../lib/pdfGenerator';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -17,7 +16,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   exportData,
 }) => {
   const [copied, setCopied] = useState(false);
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   if (!isOpen) return null;
 
@@ -27,17 +25,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     navigator.clipboard.writeText(jsonString);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleDownloadPdf = () => {
-    setDownloadingPdf(true);
-    try {
-      downloadEvidencePackagePdf({ song, exportData });
-    } catch (err) {
-      console.error('Failed to generate evidence package PDF:', err);
-    } finally {
-      setDownloadingPdf(false);
-    }
   };
 
   const handleDownloadJson = () => {
@@ -104,26 +91,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="rounded border border-[#282f3d] bg-transparent px-3 py-1.5 text-xs text-[#8c94a0] hover:text-white cursor-pointer"
+              className="rounded border border-[#282f3d] bg-transparent px-3.5 py-1.5 text-xs text-[#8c94a0] hover:text-white"
             >
               Close
             </button>
             <button
               onClick={handleDownloadJson}
-              className="flex items-center gap-1 rounded border border-[#282f3d] bg-[#141820] hover:bg-[#1d2330] px-3 py-1.5 text-xs text-[#c5cbd4] hover:text-white transition-colors cursor-pointer"
-              title="Download raw structured JSON for automated ingestion"
+              className="flex items-center gap-1.5 rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-4 py-1.5 text-xs font-semibold"
             >
               <Download className="h-3.5 w-3.5" />
-              <span>Download JSON</span>
-            </button>
-            <button
-              onClick={handleDownloadPdf}
-              disabled={downloadingPdf}
-              className="flex items-center gap-1.5 rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-4 py-1.5 text-xs font-semibold shadow-md transition-colors cursor-pointer"
-              title="Download official branded PDF evidence dossier"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span>{downloadingPdf ? 'Generating PDF...' : 'Download Evidence Package (PDF)'}</span>
+              <span>Download Evidence Package</span>
             </button>
           </div>
         </div>

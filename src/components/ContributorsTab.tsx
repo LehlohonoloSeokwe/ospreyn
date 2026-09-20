@@ -39,7 +39,6 @@ interface ContributorsTabProps {
   }) => Promise<void>;
   onRemoveContributor: (songContributorId: string) => Promise<void>;
   onSendInvitations: (contributorIds: string[]) => Promise<any>;
-  onOpenReviewPortal: (rawToken: string) => void;
 }
 
 export const ContributorsTab: React.FC<ContributorsTabProps> = ({
@@ -52,7 +51,6 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
   onAddContributor,
   onRemoveContributor,
   onSendInvitations,
-  onOpenReviewPortal,
 }) => {
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -171,7 +169,7 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
         <div>
           <h3 className="text-sm font-semibold text-white">Contributors &amp; Invitation Lifecycle</h3>
           <p className="text-xs text-[#798394] mt-0.5">
-            Role is distinct from ownership. Send single-use, hashed review invitations to participants.
+            Role is distinct from ownership. Issue single-use review links for participants to confirm their split.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -224,7 +222,8 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
             Invitations Dispatched Successfully
           </div>
           <p className="text-xs text-[#a0a8b5]">
-            In production, these links are delivered via transactional email. For immediate review testing, click below to open the review portal as any collaborator:
+            Copy each link and send it to the contributor now. Ospreyn stores only a hash of these
+            links and cannot show them again. Each one expires and can be used once.
           </p>
           <div className="space-y-2">
             {lastDispatchedInvites.map((inv, i) => (
@@ -238,19 +237,21 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => copyToClipboard(window.location.origin + inv.reviewUrl, inv.rawToken)}
+                    onClick={() => copyToClipboard(inv.reviewUrl, inv.rawToken)}
                     className="flex items-center gap-1 rounded bg-[#161a22] px-2 py-1 text-[11px] text-[#c5cbd4] hover:text-white"
                   >
                     {copiedToken === inv.rawToken ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
                     <span>{copiedToken === inv.rawToken ? 'Copied' : 'Copy URL'}</span>
                   </button>
-                  <button
-                    onClick={() => onOpenReviewPortal(inv.rawToken)}
+                  <a
+                    href={inv.reviewUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="flex items-center gap-1 rounded bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-1 text-[11px] font-medium text-emerald-300 hover:bg-emerald-500/30"
                   >
-                    <span>Test Review</span>
+                    <span>Open link</span>
                     <ExternalLink className="h-3 w-3" />
-                  </button>
+                  </a>
                 </div>
               </div>
             ))}
@@ -309,16 +310,16 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
       <div className="rounded border border-[#1f242e] bg-[#0e1116] p-5 space-y-3">
         <div className="flex items-center justify-between">
           <h4 className="text-xs font-mono uppercase tracking-wider text-[#8c94a0]">
-            Invitations Log (Table: invitations)
+            Invitation history
           </h4>
           <span className="text-[11px] text-[#5e6675] font-mono flex items-center gap-1">
             <Key className="h-3 w-3" />
-            Tokens SHA-256 Hashed
+            Links stored as SHA-256 hashes
           </span>
         </div>
 
         {invitations.length === 0 ? (
-          <p className="text-xs text-[#5e6675]">No invitation attempts generated for this version.</p>
+          <p className="text-xs text-[#5e6675]">No review links issued for this version yet.</p>
         ) : (
           <div className="divide-y divide-[#181c24]">
             {invitations.map((inv) => (
@@ -332,15 +333,11 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
                     Expires: {new Date(inv.expiresAt).toLocaleDateString('en-ZA')}
                   </span>
                 </div>
-                {inv.rawToken && inv.status === 'pending' && (
-                  <button
-                    onClick={() => onOpenReviewPortal(inv.rawToken!)}
-                    className="inline-flex items-center gap-1 text-[11px] text-[#e6b359] hover:underline"
-                  >
-                    <span>Open Review Portal</span>
-                    <ExternalLink className="h-3 w-3" />
-                  </button>
-                )}
+                <span className="text-[11px] text-[#5e6675]">
+                  {inv.usedAt
+                    ? `Responded ${new Date(inv.usedAt).toLocaleDateString('en-ZA')}`
+                    : 'Link not retrievable — reissue to send again'}
+                </span>
               </div>
             ))}
           </div>
@@ -433,7 +430,7 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
           <div className="w-full max-w-md rounded border border-[#232936] bg-[#0f1218] p-6 shadow-2xl space-y-4">
             <h3 className="text-base font-semibold text-white">Generate Review Invitations</h3>
             <p className="text-xs text-[#8c94a0]">
-              Select which contributors to invite for Version {currentVersion.versionNumber}.0. Cryptographic single-use review tokens will be issued.
+              Select which contributors to invite for Version {currentVersion.versionNumber}.0. Each gets a single-use review link, shown once.
             </p>
 
             <div className="space-y-2 max-h-56 overflow-y-auto border border-[#222834] rounded p-2.5">

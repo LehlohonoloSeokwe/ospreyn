@@ -7,10 +7,7 @@ import {
   ArrowRight,
   ShieldCheck,
   FileText,
-  UserCheck,
   Plus,
-  ExternalLink,
-  Download,
 } from 'lucide-react';
 import { Song, AuditEvent, User } from '../types';
 
@@ -26,7 +23,6 @@ interface DashboardViewProps {
   };
   onSelectSong: (songId: string) => void;
   onOpenCreateModal: () => void;
-  onOpenReviewPortal: (rawToken: string) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -35,7 +31,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   metrics,
   onSelectSong,
   onOpenCreateModal,
-  onOpenReviewPortal,
 }) => {
   const getStatusBadge = (status: Song['status']) => {
     switch (status) {
@@ -123,47 +118,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="text-2xl font-bold text-white mt-1.5">{metrics.needsAttentionCount}</div>
           <div className="text-[11px] text-[#798394] mt-1">Draft or change requested</div>
         </div>
-      </div>
-
-      {/* Collaborator Review Demo Banner */}
-      <div className="rounded border border-amber-500/20 bg-amber-500/5 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div className="space-y-1">
-          <div className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
-            <UserCheck className="h-3.5 w-3.5" />
-            External Collaborator Review Simulator
-          </div>
-          <p className="text-xs text-[#a0a8b5]">
-            Experience how invited artists/producers review and confirm splits without needing a workspace account.
-          </p>
-        </div>
-        <button
-          onClick={() => onOpenReviewPortal('demo-token-kabelo-2026')}
-          className="inline-flex items-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/20 transition-colors cursor-pointer shrink-0"
-        >
-          <span>Test Review as K-Soul</span>
-          <ExternalLink className="h-3 w-3" />
-        </button>
-      </div>
-
-      {/* Project Source Code Download Banner */}
-      <div className="rounded border border-[#222b3a] bg-[#0e131b] p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div className="space-y-0.5">
-          <div className="text-xs font-semibold text-white flex items-center gap-1.5">
-            <Download className="h-3.5 w-3.5 text-[#e6b359]" />
-            Download Complete Project (.ZIP)
-          </div>
-          <p className="text-xs text-[#8c94a0]">
-            Export the complete codebase, backend server, database schemas, React components, and static assets in a single archive.
-          </p>
-        </div>
-        <a
-          href="/api/download-zip"
-          download="ospreyn-music-rights-project.zip"
-          className="inline-flex items-center gap-1.5 rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-3.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer shrink-0 shadow-sm"
-        >
-          <Download className="h-3.5 w-3.5" />
-          <span>Download ZIP Folder</span>
-        </a>
       </div>
 
       {/* Main Content: Catalogue Table & Activity Log */}
