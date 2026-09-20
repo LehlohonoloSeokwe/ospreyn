@@ -18,6 +18,7 @@ import {
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { buildLocalUploadUrl, buildLocalDownloadUrl, headLocalObject, deleteLocalObject } from './localStorage';
 
 const bucket = process.env.S3_BUCKET;
 const region = process.env.S3_REGION || 'us-east-1';
@@ -25,16 +26,28 @@ const endpoint = process.env.S3_ENDPOINT || undefined;
 const accessKeyId = process.env.S3_ACCESS_KEY_ID;
 const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
 
-export const storageConfigured = Boolean(bucket && accessKeyId && secretAccessKey);
+/** True when real S3-compatible object storage is configured. */
+export const s3Configured = Boolean(bucket && accessKeyId && secretAccessKey);
 
-if (!storageConfigured) {
+/**
+ * Storage is always "configured" in the sense that uploads are accepted —
+ * when S3 isn't set up, requests fall back to local disk (see
+ * ./localStorage.ts) rather than being rejected outright. Kept for the
+ * routes that used to gate on it.
+ */
+export const storageConfigured = true;
+
+export const storageMode: 'S3' | 'local-disk' = s3Configured ? 'S3' : 'local-disk';
+
+if (!s3Configured) {
   console.warn(
     '[storage] S3_BUCKET / S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are not all set. ' +
-      'Document vault uploads will be rejected until object storage is configured.',
+      'Falling back to local-disk storage — durable on a persistent volume, but wiped on ' +
+      'most platforms\' deploys/restarts. Configure S3 before relying on this in production.',
   );
 }
 
-const client = storageConfigured
+const client = s3Configured
   ? new S3Client({
       region,
       endpoint,
@@ -88,8 +101,11 @@ export function buildStorageKey(params: {
 export async function createUploadUrl(
   storageKey: string,
   mimeType: string,
-  checksumSha256Base64?: string,
+  checksumSha256Base64: string | undefined,
+  localApiBaseUrl: string,
 ): Promise<string> {
+  if (!s3Configured) return buildLocalUploadUrl(storageKey, localApiBaseUrl);
+
   const command = new PutObjectCommand({
     Bucket: bucket,
     Key: storageKey,
@@ -103,7 +119,13 @@ export async function createUploadUrl(
   return getSignedUrl(requireClient(), command, { expiresIn: UPLOAD_URL_TTL });
 }
 
-export async function createDownloadUrl(storageKey: string, fileName: string): Promise<string> {
+export async function createDownloadUrl(
+  storageKey: string,
+  fileName: string,
+  localApiBaseUrl: string,
+): Promise<string> {
+  if (!s3Configured) return buildLocalDownloadUrl(storageKey, fileName, localApiBaseUrl);
+
   const command = new GetObjectCommand({
     Bucket: bucket,
     Key: storageKey,
@@ -119,6 +141,11 @@ export async function createDownloadUrl(storageKey: string, fileName: string): P
 export async function headObject(
   storageKey: string,
 ): Promise<{ size: number; checksumSha256Base64?: string; mimeType?: string } | null> {
+  if (!s3Configured) {
+    const local = await headLocalObject(storageKey);
+    return local ? { size: local.size } : null;
+  }
+
   try {
     const result = await requireClient().send(
       new HeadObjectCommand({ Bucket: bucket, Key: storageKey, ChecksumMode: 'ENABLED' }),
@@ -135,6 +162,7 @@ export async function headObject(
 }
 
 export async function deleteObject(storageKey: string): Promise<void> {
+  if (!s3Configured) return deleteLocalObject(storageKey);
   await requireClient().send(new DeleteObjectCommand({ Bucket: bucket, Key: storageKey }));
 }
 

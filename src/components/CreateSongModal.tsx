@@ -94,7 +94,7 @@ export const CreateSongModal: React.FC<CreateSongModalProps> = ({
                 placeholder="e.g. Amapiano Nights"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#e6b359] focus:outline-hidden"
+                className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#ffffff] focus:outline-hidden"
               />
             </div>
 
@@ -108,7 +108,7 @@ export const CreateSongModal: React.FC<CreateSongModalProps> = ({
                 placeholder="e.g. Hloni Deep feat. Queen Lerato"
                 value={primaryArtist}
                 onChange={(e) => setPrimaryArtist(e.target.value)}
-                className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#e6b359] focus:outline-hidden"
+                className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#ffffff] focus:outline-hidden"
               />
             </div>
 
@@ -121,7 +121,7 @@ export const CreateSongModal: React.FC<CreateSongModalProps> = ({
                 placeholder="e.g. Amapiano, Afro House"
                 value={genre}
                 onChange={(e) => setGenre(e.target.value)}
-                className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#e6b359] focus:outline-hidden"
+                className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#ffffff] focus:outline-hidden"
               />
             </div>
 
@@ -133,7 +133,7 @@ export const CreateSongModal: React.FC<CreateSongModalProps> = ({
                 type="date"
                 value={releaseDate}
                 onChange={(e) => setReleaseDate(e.target.value)}
-                className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#e6b359] focus:outline-hidden"
+                className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#ffffff] focus:outline-hidden"
               />
             </div>
 
@@ -146,7 +146,7 @@ export const CreateSongModal: React.FC<CreateSongModalProps> = ({
                 placeholder="e.g. ZA-XXX-26-XXXXX"
                 value={isrc}
                 onChange={(e) => setIsrc(e.target.value)}
-                className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#e6b359] focus:outline-hidden font-mono"
+                className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#ffffff] focus:outline-hidden font-mono"
               />
               <span className="text-[10px] text-[#5e6675]">Can be added or updated later</span>
             </div>
@@ -160,7 +160,7 @@ export const CreateSongModal: React.FC<CreateSongModalProps> = ({
                 placeholder="e.g. SSW-2026-003"
                 value={catalogueReference}
                 onChange={(e) => setCatalogueReference(e.target.value)}
-                className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#e6b359] focus:outline-hidden font-mono"
+                className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#ffffff] focus:outline-hidden font-mono"
               />
             </div>
 
@@ -173,7 +173,7 @@ export const CreateSongModal: React.FC<CreateSongModalProps> = ({
                 placeholder="Studio location, project background, or agreement context..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#e6b359] focus:outline-hidden"
+                className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#ffffff] focus:outline-hidden"
               />
             </div>
           </div>
@@ -189,7 +189,7 @@ export const CreateSongModal: React.FC<CreateSongModalProps> = ({
             <button
               type="submit"
               disabled={loading}
-              className="rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-4 py-1.5 text-xs font-semibold tracking-tight transition-colors disabled:opacity-50 cursor-pointer"
+              className="rounded bg-[#ffffff] hover:bg-[#e2e2e2] text-[#0c0e12] px-4 py-1.5 text-xs font-semibold tracking-tight transition-colors disabled:opacity-50 cursor-pointer"
             >
               {loading ? 'Creating...' : 'Create Rights Record'}
             </button>

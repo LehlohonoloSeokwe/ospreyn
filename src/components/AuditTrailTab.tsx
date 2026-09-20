@@ -11,7 +11,7 @@ export const AuditTrailTab: React.FC<AuditTrailTabProps> = ({ auditEvents }) => 
     if (eventType.includes('CONFIRMED')) return <CheckCircle2 className="h-4 w-4 text-emerald-400" />;
     if (eventType.includes('CHANGE_REQUESTED')) return <AlertCircle className="h-4 w-4 text-rose-400" />;
     if (eventType.includes('INVITED')) return <Key className="h-4 w-4 text-amber-400" />;
-    if (eventType.includes('AGREEMENT')) return <FileText className="h-4 w-4 text-[#e6b359]" />;
+    if (eventType.includes('AGREEMENT')) return <FileText className="h-4 w-4 text-[#ffffff]" />;
     return <Shield className="h-4 w-4 text-[#798394]" />;
   };
 
@@ -21,7 +21,7 @@ export const AuditTrailTab: React.FC<AuditTrailTabProps> = ({ auditEvents }) => 
       <div className="bg-[#11141b] border border-[#1e232d] p-4 rounded flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-white flex items-center gap-1.5">
-            <History className="h-4 w-4 text-[#e6b359]" />
+            <History className="h-4 w-4 text-[#ffffff]" />
             Append-Only Audit Ledger
           </h3>
           <p className="text-xs text-[#798394] mt-0.5">
@@ -49,7 +49,7 @@ export const AuditTrailTab: React.FC<AuditTrailTabProps> = ({ auditEvents }) => 
                 <div className="space-y-1.5 bg-[#12151c] border border-[#1d222c] p-3.5 rounded group-hover:border-[#2d3648] transition-colors">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-semibold text-[#e6b359]">
+                      <span className="font-mono text-xs font-semibold text-[#ffffff]">
                         {event.eventType.replace(/_/g, ' ')}
                       </span>
                       <span className="text-[10px] font-mono text-[#798394] bg-[#1a1f29] px-1.5 py-0.5 rounded border border-[#232936]">

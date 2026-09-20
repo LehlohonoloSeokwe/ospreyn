@@ -172,7 +172,7 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
           <div className="space-y-1.5">
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-white tracking-tight">{song.title}</h1>
-              <span className="font-mono text-xs font-semibold text-[#e6b359] bg-[#221c10] border border-[#382d1a] px-2 py-0.5 rounded">
+              <span className="font-mono text-xs font-semibold text-[#ffffff] bg-[#221c10] border border-[#382d1a] px-2 py-0.5 rounded">
                 v{song.currentVersionNumber}.0
               </span>
               {getStatusBadge()}
@@ -227,7 +227,7 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
           onClick={() => setActiveTab('overview')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
             activeTab === 'overview'
-              ? 'border-[#e6b359] text-white font-semibold'
+              ? 'border-[#ffffff] text-white font-semibold'
               : 'border-transparent text-[#8c94a0] hover:text-white'
           }`}
         >
@@ -239,7 +239,7 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
           onClick={() => setActiveTab('ownership')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
             activeTab === 'ownership'
-              ? 'border-[#e6b359] text-white font-semibold'
+              ? 'border-[#ffffff] text-white font-semibold'
               : 'border-transparent text-[#8c94a0] hover:text-white'
           }`}
         >
@@ -254,7 +254,7 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
           onClick={() => setActiveTab('contributors')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
             activeTab === 'contributors'
-              ? 'border-[#e6b359] text-white font-semibold'
+              ? 'border-[#ffffff] text-white font-semibold'
               : 'border-transparent text-[#8c94a0] hover:text-white'
           }`}
         >
@@ -269,7 +269,7 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
           onClick={() => setActiveTab('agreements')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
             activeTab === 'agreements'
-              ? 'border-[#e6b359] text-white font-semibold'
+              ? 'border-[#ffffff] text-white font-semibold'
               : 'border-transparent text-[#8c94a0] hover:text-white'
           }`}
         >
@@ -286,7 +286,7 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
           onClick={() => setActiveTab('documents')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
             activeTab === 'documents'
-              ? 'border-[#e6b359] text-white font-semibold'
+              ? 'border-[#ffffff] text-white font-semibold'
               : 'border-transparent text-[#8c94a0] hover:text-white'
           }`}
         >
@@ -303,7 +303,7 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
           onClick={() => setActiveTab('audit')}
           className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
             activeTab === 'audit'
-              ? 'border-[#e6b359] text-white font-semibold'
+              ? 'border-[#ffffff] text-white font-semibold'
               : 'border-transparent text-[#8c94a0] hover:text-white'
           }`}
         >
@@ -324,7 +324,7 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
               <h3 className="text-xs font-mono uppercase tracking-wider text-[#8c94a0]">Song Metadata</h3>
               <button
                 onClick={() => setIsEditingMetadata(!isEditingMetadata)}
-                className="text-xs text-[#e6b359] hover:underline cursor-pointer"
+                className="text-xs text-[#ffffff] hover:underline cursor-pointer"
               >
                 {isEditingMetadata ? 'Cancel' : 'Edit Metadata'}
               </button>
@@ -399,7 +399,7 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
                 <div className="sm:col-span-2 flex justify-end">
                   <button
                     onClick={handleSaveMetadata}
-                    className="rounded bg-[#e6b359] text-[#0c0e12] px-3.5 py-1.5 text-xs font-semibold"
+                    className="rounded bg-[#ffffff] text-[#0c0e12] px-3.5 py-1.5 text-xs font-semibold"
                   >
                     Save Changes
                   </button>
@@ -439,7 +439,7 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
             <div className="rounded border border-[#1f242e] bg-[#0e1116] p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-white">Composition Splits</span>
-                <span className="font-mono text-xs font-semibold text-[#e6b359]">
+                <span className="font-mono text-xs font-semibold text-[#ffffff]">
                   {validation?.compositionPercentage.toFixed(2)}%
                 </span>
               </div>
@@ -459,7 +459,7 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
             <div className="rounded border border-[#1f242e] bg-[#0e1116] p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-white">Master Splits</span>
-                <span className="font-mono text-xs font-semibold text-[#e6b359]">
+                <span className="font-mono text-xs font-semibold text-[#ffffff]">
                   {validation?.masterPercentage.toFixed(2)}%
                 </span>
               </div>

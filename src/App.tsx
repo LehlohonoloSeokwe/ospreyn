@@ -15,6 +15,7 @@ import { RightsRecordView } from './components/RightsRecordView';
 import { ExportModal } from './components/ExportModal';
 import { ReviewPortalView } from './components/ReviewPortalView';
 import { LoginView } from './components/LoginView';
+import { LandingPage } from './components/LandingPage';
 
 interface Metrics {
   totalSongs: number;
@@ -36,7 +37,7 @@ type AuthState = 'checking' | 'authenticated' | 'anonymous';
 
 const Spinner: React.FC = () => (
   <div className="flex h-64 items-center justify-center">
-    <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#e6b359] border-t-transparent" />
+    <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#ffffff] border-t-transparent" />
   </div>
 );
 
@@ -92,7 +93,7 @@ export default function App() {
   };
 
   const shell = (children: React.ReactNode) => (
-    <div className="min-h-screen bg-[#090a0d] text-[#c5cbd4] antialiased selection:bg-[#e6b359]/30 selection:text-[#e6b359]">
+    <div className="min-h-screen bg-[#090a0d] text-[#c5cbd4] antialiased selection:bg-[#ffffff]/30 selection:text-[#ffffff]">
       <Header
         user={user}
         currentOrg={currentOrg}
@@ -147,8 +148,14 @@ export default function App() {
       <Route
         path="/"
         element={
-          <RequireAuth>
-            {shell(
+          authState === 'checking' ? (
+            <div className="min-h-screen bg-[#090a0d]">
+              <Spinner />
+            </div>
+          ) : authState === 'anonymous' ? (
+            <LandingPage />
+          ) : (
+            shell(
               <DashboardView
                 user={user}
                 songs={songs}
@@ -156,8 +163,8 @@ export default function App() {
                 onSelectSong={(id: string) => navigate(`/songs/${id}`)}
                 onOpenCreateModal={() => setIsCreateModalOpen(true)}
               />,
-            )}
-          </RequireAuth>
+            )
+          )
         }
       />
 
@@ -226,7 +233,7 @@ const SongRoute: React.FC<{ onWorkspaceChanged: () => Promise<void> }> = ({
         </p>
         <button
           onClick={() => navigate('/')}
-          className="mt-4 rounded bg-[#e6b359] px-3.5 py-1.5 text-xs font-semibold text-[#0c0e12]"
+          className="mt-4 rounded bg-[#ffffff] px-3.5 py-1.5 text-xs font-semibold text-[#0c0e12]"
         >
           Back to catalogue
         </button>

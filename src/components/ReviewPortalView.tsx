@@ -93,7 +93,7 @@ export const ReviewPortalView: React.FC<ReviewPortalViewProps> = ({
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <div className="text-center space-y-2">
-          <div className="h-6 w-6 border-2 border-[#e6b359] border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="h-6 w-6 border-2 border-[#ffffff] border-t-transparent rounded-full animate-spin mx-auto" />
           <div className="text-xs text-[#8c94a0] font-mono">Loading Rights Record Review...</div>
         </div>
       </div>
@@ -137,7 +137,7 @@ export const ReviewPortalView: React.FC<ReviewPortalViewProps> = ({
         )}
 
         <div className="flex items-center gap-2">
-          <Shield className="h-4 w-4 text-[#e6b359]" />
+          <Shield className="h-4 w-4 text-[#ffffff]" />
           <span className="text-xs font-mono font-semibold text-white uppercase tracking-wider">
             Ospreyn Contributor Review
           </span>
@@ -166,7 +166,7 @@ export const ReviewPortalView: React.FC<ReviewPortalViewProps> = ({
           {onExit ? (
             <button
               onClick={onExit}
-              className="rounded bg-[#e6b359] px-4 py-2 text-xs font-semibold text-[#0c0e12] cursor-pointer"
+              className="rounded bg-[#ffffff] px-4 py-2 text-xs font-semibold text-[#0c0e12] cursor-pointer"
             >
               Return to catalogue
             </button>
@@ -180,7 +180,7 @@ export const ReviewPortalView: React.FC<ReviewPortalViewProps> = ({
         <>
           {/* Greeting Card */}
           <div className="rounded border border-[#1f242e] bg-[#0e1116] p-6 space-y-3">
-            <div className="text-xs font-mono uppercase text-[#e6b359] tracking-wider">
+            <div className="text-xs font-mono uppercase text-[#ffffff] tracking-wider">
               Invitation for {contributor.fullName} {contributor.professionalName ? `("${contributor.professionalName}")` : ''}
             </div>
             <h1 className="text-xl font-bold text-white tracking-tight">
@@ -243,7 +243,7 @@ export const ReviewPortalView: React.FC<ReviewPortalViewProps> = ({
             <div className="rounded border border-[#1f242e] bg-[#0e1116] overflow-hidden">
               <div className="p-3.5 bg-[#12161f] border-b border-[#1b2029] flex items-center justify-between">
                 <span className="text-xs font-semibold text-white flex items-center gap-1.5">
-                  <FileText className="h-4 w-4 text-[#e6b359]" />
+                  <FileText className="h-4 w-4 text-[#ffffff]" />
                   Split Agreement Terms
                 </span>
                 <span className="text-[10px] text-[#798394] font-mono">Draft v{version.versionNumber}.0</span>
@@ -262,7 +262,7 @@ export const ReviewPortalView: React.FC<ReviewPortalViewProps> = ({
                 id="agree"
                 checked={hasAgreedCheck}
                 onChange={(e) => setHasAgreedCheck(e.target.checked)}
-                className="mt-1 rounded border-[#3a4454] text-[#e6b359] focus:ring-0 cursor-pointer h-4 w-4"
+                className="mt-1 rounded border-[#3a4454] text-[#ffffff] focus:ring-0 cursor-pointer h-4 w-4"
               />
               <label htmlFor="agree" className="text-xs text-[#c5cbd4] leading-relaxed cursor-pointer select-none">
                 <strong>Confirmation of Agreed Understanding:</strong> "I confirm that the information above accurately records our agreed understanding regarding contributions and ownership for this work."
@@ -286,7 +286,7 @@ export const ReviewPortalView: React.FC<ReviewPortalViewProps> = ({
             <button
               onClick={handleConfirm}
               disabled={!hasAgreedCheck || submitting}
-              className="w-full sm:w-auto rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-6 py-2.5 text-xs font-semibold tracking-tight transition-colors disabled:opacity-40 cursor-pointer"
+              className="w-full sm:w-auto rounded bg-[#ffffff] hover:bg-[#e2e2e2] text-[#0c0e12] px-6 py-2.5 text-xs font-semibold tracking-tight transition-colors disabled:opacity-40 cursor-pointer"
             >
               {submitting ? 'Registering Confirmation...' : 'Confirm Contribution & Splits'}
             </button>

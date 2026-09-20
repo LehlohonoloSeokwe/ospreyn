@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Building2, LogOut } from 'lucide-react';
+import { Building2, LogOut } from 'lucide-react';
 import { User, Organisation } from '../types';
 
 interface HeaderProps {
@@ -30,8 +30,8 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={onGoHome}
             className="flex items-center space-x-2.5 text-left group transition-opacity hover:opacity-90 cursor-pointer"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded bg-[#e6b359] text-[#0c0e12] font-semibold">
-              <Shield className="h-4 w-4" />
+            <div className="flex h-8 w-8 items-center justify-center">
+              <img src="/assets/logo-white.png" alt="Ospreyn" className="h-6 w-6 object-contain" />
             </div>
             <div>
               <div className="text-sm font-semibold tracking-wide text-white uppercase flex items-center gap-1.5">
@@ -63,7 +63,7 @@ export const Header: React.FC<HeaderProps> = ({
           {activeView !== 'review' && (
             <button
               onClick={onOpenCreateModal}
-              className="flex items-center space-x-1.5 rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-3.5 py-1.5 text-xs font-semibold tracking-tight transition-colors cursor-pointer shadow-sm"
+              className="flex items-center space-x-1.5 rounded bg-[#ffffff] hover:bg-[#e2e2e2] text-[#0c0e12] px-3.5 py-1.5 text-xs font-semibold tracking-tight transition-colors cursor-pointer shadow-sm"
             >
               <span>+ Create Rights Record</span>
             </button>

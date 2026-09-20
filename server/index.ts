@@ -12,6 +12,8 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { apiRouter } from './routes';
 import { verifyConnection, pool } from './db';
+import { localStorageRouter } from './localStorage';
+import { storageMode } from './storage';
 
 const app = express();
 
@@ -62,13 +64,24 @@ app.use(
   }),
 );
 
+// Mounted before express.json() so the PUT handler can read the raw upload
+// body itself, rather than have it consumed (and rejected as invalid JSON)
+// by the global JSON parser below.
+app.use('/api/local-storage', localStorageRouter);
+
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
 app.get('/api/health', async (_req, res) => {
   try {
     await pool.query('SELECT 1');
-    res.json({ status: 'ok', service: 'ospreyn-api', version: '1.2', database: 'connected' });
+    res.json({
+      status: 'ok',
+      service: 'ospreyn-api',
+      version: '1.2',
+      database: 'connected',
+      storage: storageMode,
+    });
   } catch {
     res.status(503).json({ status: 'degraded', service: 'ospreyn-api', database: 'unreachable' });
   }

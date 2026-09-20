@@ -190,7 +190,7 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
               setIsInviteModalOpen(true);
             }}
             disabled={!validation?.canProceedToInvite}
-            className="flex items-center gap-1.5 rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-3.5 py-1.5 text-xs font-semibold tracking-tight transition-colors disabled:opacity-40 cursor-pointer"
+            className="flex items-center gap-1.5 rounded bg-[#ffffff] hover:bg-[#e2e2e2] text-[#0c0e12] px-3.5 py-1.5 text-xs font-semibold tracking-tight transition-colors disabled:opacity-40 cursor-pointer"
           >
             <Send className="h-3.5 w-3.5" />
             <span>Send Invitations</span>
@@ -358,7 +358,7 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
                   placeholder="e.g. Kabelo Sithole"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white focus:border-[#e6b359] focus:outline-hidden"
+                  className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white focus:border-[#ffffff] focus:outline-hidden"
                 />
               </div>
 
@@ -369,7 +369,7 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
                   placeholder="e.g. K-Soul"
                   value={professionalName}
                   onChange={(e) => setProfessionalName(e.target.value)}
-                  className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white focus:border-[#e6b359] focus:outline-hidden"
+                  className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white focus:border-[#ffffff] focus:outline-hidden"
                 />
               </div>
 
@@ -381,7 +381,7 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
                   placeholder="kabelo@example.co.za"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white focus:border-[#e6b359] focus:outline-hidden"
+                  className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white focus:border-[#ffffff] focus:outline-hidden"
                 />
               </div>
 
@@ -390,7 +390,7 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
                 <select
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
-                  className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white focus:border-[#e6b359] focus:outline-hidden"
+                  className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white focus:border-[#ffffff] focus:outline-hidden"
                 >
                   <option value="songwriter">Songwriter</option>
                   <option value="composer">Composer</option>
@@ -414,7 +414,7 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
                 <button
                   type="submit"
                   disabled={loading}
-                  className="rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-4 py-1.5 text-xs font-semibold"
+                  className="rounded bg-[#ffffff] hover:bg-[#e2e2e2] text-[#0c0e12] px-4 py-1.5 text-xs font-semibold"
                 >
                   {loading ? 'Adding...' : 'Add Contributor'}
                 </button>
@@ -456,7 +456,7 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
                               setSelectedInviteIds((prev) => prev.filter((id) => id !== c!.id));
                             }
                           }}
-                          className="rounded border-[#2c3444] text-[#e6b359] focus:ring-0"
+                          className="rounded border-[#2c3444] text-[#ffffff] focus:ring-0"
                         />
                         <div>
                           <div className="text-xs font-medium text-white">{c!.fullName}</div>
@@ -481,7 +481,7 @@ export const ContributorsTab: React.FC<ContributorsTabProps> = ({
                 type="button"
                 disabled={loading || selectedInviteIds.length === 0}
                 onClick={handleDispatchInvites}
-                className="rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-4 py-1.5 text-xs font-semibold disabled:opacity-50"
+                className="rounded bg-[#ffffff] hover:bg-[#e2e2e2] text-[#0c0e12] px-4 py-1.5 text-xs font-semibold disabled:opacity-50"
               >
                 {loading ? 'Generating...' : `Dispatch ${selectedInviteIds.length} Invitation(s)`}
               </button>

@@ -1,314 +1,238 @@
 /**
- * Ospreyn Transactional Email Service
- * Supports Resend (recommended), SendGrid, and Postmark.
- * Falls back to detailed console logging in development or when API keys are unset.
+ * Transactional email.
+ *
+ * Supports Resend, SendGrid or Postmark, selected by whichever API key is
+ * present in the environment (or forced via EMAIL_PROVIDER). If none is
+ * configured, emails are logged to the console instead of sent — useful for
+ * local development and for staging environments that don't have a provider
+ * wired up yet. Nothing here throws on a missing provider: a failed or
+ * unconfigured send is logged and swallowed, since a notification email
+ * should never break the request that triggered it.
  */
 
-interface SendEmailParams {
+type Provider = 'resend' | 'sendgrid' | 'postmark' | 'console';
+
+interface SendEmailInput {
   to: string;
   subject: string;
   html: string;
-  text?: string;
+  text: string;
 }
 
-interface ContributorInviteEmailParams {
-  to: string;
+function resolveProvider(): Provider {
+  const forced = (process.env.EMAIL_PROVIDER || '').toLowerCase();
+  if (forced === 'resend' || forced === 'sendgrid' || forced === 'postmark') return forced;
+
+  if (process.env.RESEND_API_KEY) return 'resend';
+  if (process.env.SENDGRID_API_KEY) return 'sendgrid';
+  if (process.env.POSTMARK_API_KEY) return 'postmark';
+  return 'console';
+}
+
+function fromAddress(): string {
+  return process.env.EMAIL_FROM || 'Ospreyn <notifications@ospreyn.app>';
+}
+
+async function sendViaResend(input: SendEmailInput) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: fromAddress(),
+      to: input.to,
+      subject: input.subject,
+      html: input.html,
+      text: input.text,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Resend responded ${res.status}: ${await res.text().catch(() => '')}`);
+  }
+}
+
+async function sendViaSendgrid(input: SendEmailInput) {
+  const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: input.to }] }],
+      from: { email: parseEmailAddress(fromAddress()) },
+      subject: input.subject,
+      content: [
+        { type: 'text/plain', value: input.text },
+        { type: 'text/html', value: input.html },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`SendGrid responded ${res.status}: ${await res.text().catch(() => '')}`);
+  }
+}
+
+async function sendViaPostmark(input: SendEmailInput) {
+  const res = await fetch('https://api.postmarkapp.com/email', {
+    method: 'POST',
+    headers: {
+      'X-Postmark-Server-Token': process.env.POSTMARK_API_KEY || '',
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      From: fromAddress(),
+      To: input.to,
+      Subject: input.subject,
+      HtmlBody: input.html,
+      TextBody: input.text,
+      MessageStream: 'outbound',
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Postmark responded ${res.status}: ${await res.text().catch(() => '')}`);
+  }
+}
+
+function parseEmailAddress(display: string): string {
+  const match = display.match(/<([^>]+)>/);
+  return match ? match[1] : display;
+}
+
+/**
+ * Sends an email through whichever provider is configured. Never throws —
+ * a failed send is logged and the caller proceeds. Callers should not
+ * `await` this for correctness; call it and move on.
+ */
+export async function sendEmail(input: SendEmailInput): Promise<void> {
+  const provider = resolveProvider();
+
+  if (provider === 'console') {
+    console.log(
+      `[ospreyn:email] (no provider configured — set RESEND_API_KEY, SENDGRID_API_KEY or POSTMARK_API_KEY to send for real)\n` +
+        `  to: ${input.to}\n  subject: ${input.subject}\n  ---\n${input.text}\n  ---`,
+    );
+    return;
+  }
+
+  try {
+    if (provider === 'resend') await sendViaResend(input);
+    else if (provider === 'sendgrid') await sendViaSendgrid(input);
+    else await sendViaPostmark(input);
+  } catch (err) {
+    console.error(`[ospreyn:email] send via ${provider} failed:`, (err as Error).message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Templates
+// ---------------------------------------------------------------------------
+
+const WRAPPER_STYLE =
+  'background:#090a0d;padding:32px 16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;';
+const CARD_STYLE =
+  'max-width:480px;margin:0 auto;background:#0e1116;border:1px solid #1f242e;border-radius:8px;padding:32px;';
+const BUTTON_STYLE =
+  'display:inline-block;background:#ffffff;color:#0c0e12;text-decoration:none;font-weight:600;font-size:13px;padding:10px 20px;border-radius:6px;';
+const MUTED = 'color:#8c94a0;font-size:12px;line-height:1.6;';
+
+function baseTemplate(bodyHtml: string): string {
+  return `
+  <div style="${WRAPPER_STYLE}">
+    <div style="${CARD_STYLE}">
+      <div style="color:#ffffff;font-size:13px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:24px;">
+        Ospreyn
+      </div>
+      ${bodyHtml}
+      <div style="margin-top:32px;padding-top:16px;border-top:1px solid #1f242e;${MUTED}">
+        Ospreyn provides independent rights-documentation and workflow infrastructure. It does not
+        provide legal advice or make claims regarding the statutory enforceability of private confirmations.
+      </div>
+    </div>
+  </div>`;
+}
+
+export function invitationEmail(params: {
   contributorName: string;
   songTitle: string;
-  primaryArtist: string;
+  organisationName: string;
   reviewUrl: string;
   expiresAt: string;
-  ownerName?: string;
-  roles?: string[];
+}) {
+  const { contributorName, songTitle, organisationName, reviewUrl, expiresAt } = params;
+  const expiry = new Date(expiresAt).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  const html = baseTemplate(`
+    <p style="color:#ffffff;font-size:15px;margin:0 0 8px;">Hi ${escapeHtml(contributorName)},</p>
+    <p style="${MUTED} margin:0 0 20px;">
+      ${escapeHtml(organisationName)} is asking you to review and confirm your share on
+      <strong style="color:#c5cbd4;">${escapeHtml(songTitle)}</strong>.
+    </p>
+    <a href="${reviewUrl}" style="${BUTTON_STYLE}">Review your split</a>
+    <p style="${MUTED} margin:20px 0 0;">This link expires on ${expiry}.</p>
+  `);
+
+  const text = `Hi ${contributorName},\n\n${organisationName} is asking you to review and confirm your share on "${songTitle}".\n\nReview your split: ${reviewUrl}\n\nThis link expires on ${expiry}.`;
+
+  return {
+    subject: `Confirm your split on "${songTitle}"`,
+    html,
+    text,
+  };
 }
 
-interface OwnerConfirmationEmailParams {
-  to: string;
+export function confirmationNotificationEmail(params: {
   ownerName: string;
   contributorName: string;
   songTitle: string;
   action: 'confirmed' | 'change_requested';
-  versionNumber: number;
-  comment?: string;
-  timestamp: string;
+  comment?: string | null;
+  songUrl: string;
+}) {
+  const { ownerName, contributorName, songTitle, action, comment, songUrl } = params;
+  const isConfirmed = action === 'confirmed';
+
+  const html = baseTemplate(`
+    <p style="color:#ffffff;font-size:15px;margin:0 0 8px;">Hi ${escapeHtml(ownerName)},</p>
+    <p style="${MUTED} margin:0 0 20px;">
+      <strong style="color:#c5cbd4;">${escapeHtml(contributorName)}</strong>
+      ${isConfirmed ? 'confirmed their split on' : 'requested a change on'}
+      <strong style="color:#c5cbd4;">${escapeHtml(songTitle)}</strong>.
+    </p>
+    ${
+      !isConfirmed && comment
+        ? `<div style="background:#141820;border:1px solid #262c38;border-radius:6px;padding:12px 16px;margin:0 0 20px;${MUTED}">
+             "${escapeHtml(comment)}"
+           </div>`
+        : ''
+    }
+    <a href="${songUrl}" style="${BUTTON_STYLE}">View rights record</a>
+  `);
+
+  const text = `Hi ${ownerName},\n\n${contributorName} ${
+    isConfirmed ? 'confirmed their split on' : 'requested a change on'
+  } "${songTitle}".${!isConfirmed && comment ? `\n\nTheir note: "${comment}"` : ''}\n\nView the rights record: ${songUrl}`;
+
+  return {
+    subject: isConfirmed
+      ? `${contributorName} confirmed their split on "${songTitle}"`
+      : `${contributorName} requested a change on "${songTitle}"`,
+    html,
+    text,
+  };
 }
 
-export class EmailService {
-  private resendApiKey: string | undefined;
-  private sendgridApiKey: string | undefined;
-  private postmarkToken: string | undefined;
-  private emailFrom: string;
-  private appOrigin: string;
-
-  constructor() {
-    this.resendApiKey = process.env.RESEND_API_KEY;
-    this.sendgridApiKey = process.env.SENDGRID_API_KEY;
-    this.postmarkToken = process.env.POSTMARK_SERVER_TOKEN;
-    this.emailFrom = process.env.EMAIL_FROM || 'Ospreyn Music Rights <notifications@ospreyn.com>';
-    this.appOrigin = process.env.APP_ORIGIN || 'http://localhost:3000';
-  }
-
-  /**
-   * Sends an email through the configured provider or logs to console.
-   */
-  async sendEmail(params: SendEmailParams): Promise<{ success: boolean; provider: string; messageId?: string }> {
-    const { to, subject, html, text } = params;
-
-    // 1. Resend (Default / Recommended)
-    if (this.resendApiKey) {
-      try {
-        const response = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.resendApiKey}`,
-          },
-          body: JSON.stringify({
-            from: this.emailFrom,
-            to: [to],
-            subject,
-            html,
-            text: text || html.replace(/<[^>]+>/g, ' ').trim(),
-          }),
-        });
-
-        if (!response.ok) {
-          const errData = await response.text();
-          console.error(`[EmailService] Resend API error (${response.status}):`, errData);
-          return { success: false, provider: 'resend' };
-        }
-
-        const data: any = await response.json();
-        console.log(`[EmailService] Sent email to ${to} via Resend. ID: ${data.id}`);
-        return { success: true, provider: 'resend', messageId: data.id };
-      } catch (err) {
-        console.error('[EmailService] Failed to send via Resend:', err);
-        return { success: false, provider: 'resend' };
-      }
-    }
-
-    // 2. SendGrid
-    if (this.sendgridApiKey) {
-      try {
-        const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.sendgridApiKey}`,
-          },
-          body: JSON.stringify({
-            personalizations: [{ to: [{ email: to }] }],
-            from: { email: this.emailFrom.replace(/.*<([^>]+)>.*/, '$1') || this.emailFrom },
-            subject,
-            content: [{ type: 'text/html', value: html }],
-          }),
-        });
-
-        if (!response.ok) {
-          const errData = await response.text();
-          console.error(`[EmailService] SendGrid API error (${response.status}):`, errData);
-          return { success: false, provider: 'sendgrid' };
-        }
-
-        console.log(`[EmailService] Sent email to ${to} via SendGrid.`);
-        return { success: true, provider: 'sendgrid' };
-      } catch (err) {
-        console.error('[EmailService] Failed to send via SendGrid:', err);
-        return { success: false, provider: 'sendgrid' };
-      }
-    }
-
-    // 3. Postmark
-    if (this.postmarkToken) {
-      try {
-        const response = await fetch('https://api.postmarkapp.com/email', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Postmark-Server-Token': this.postmarkToken,
-          },
-          body: JSON.stringify({
-            From: this.emailFrom,
-            To: to,
-            Subject: subject,
-            HtmlBody: html,
-            TextBody: text || html.replace(/<[^>]+>/g, ' ').trim(),
-          }),
-        });
-
-        if (!response.ok) {
-          const errData = await response.text();
-          console.error(`[EmailService] Postmark API error (${response.status}):`, errData);
-          return { success: false, provider: 'postmark' };
-        }
-
-        const data: any = await response.json();
-        console.log(`[EmailService] Sent email to ${to} via Postmark.`);
-        return { success: true, provider: 'postmark', messageId: data.MessageID };
-      } catch (err) {
-        console.error('[EmailService] Failed to send via Postmark:', err);
-        return { success: false, provider: 'postmark' };
-      }
-    }
-
-    // Fallback: Mock / Dev Logging
-    console.log('\n================== [TRANSACTIONAL EMAIL (DEV/MOCK)] ==================');
-    console.log(`To: ${to}`);
-    console.log(`From: ${this.emailFrom}`);
-    console.log(`Subject: ${subject}`);
-    console.log('Notice: Set RESEND_API_KEY in environment variables to deliver live transactional emails.');
-    console.log('=======================================================================\n');
-
-    return { success: true, provider: 'mock' };
-  }
-
-  /**
-   * Sends an invitation to a collaborator with their single-use review link.
-   */
-  async sendContributorInvitation(params: ContributorInviteEmailParams) {
-    const fullReviewUrl = params.reviewUrl.startsWith('http')
-      ? params.reviewUrl
-      : `${this.appOrigin.replace(/\/$/, '')}${params.reviewUrl.startsWith('/') ? '' : '/'}${params.reviewUrl}`;
-
-    const expiryDate = new Date(params.expiresAt).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-
-    const subject = `Action Required: Review & Confirm Ownership Split for "${params.songTitle}"`;
-
-    const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #090a0d; color: #c5cbd4; margin: 0; padding: 24px; }
-    .container { max-width: 580px; margin: 0 auto; background-color: #0e1116; border: 1px solid #232936; border-radius: 8px; overflow: hidden; }
-    .header { background-color: #141820; padding: 24px 32px; border-bottom: 2px solid #e6b359; }
-    .header-title { color: #e6b359; font-size: 14px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin: 0; }
-    .content { padding: 32px; }
-    h1 { color: #ffffff; font-size: 20px; margin-top: 0; margin-bottom: 16px; font-weight: 600; }
-    p { font-size: 14px; line-height: 1.6; color: #a0a8b5; margin-bottom: 20px; }
-    .details-box { background-color: #161a22; border: 1px solid #232936; border-radius: 6px; padding: 18px 20px; margin: 24px 0; }
-    .details-row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px; }
-    .details-row:last-child { margin-bottom: 0; }
-    .label { color: #798394; }
-    .value { color: #ffffff; font-weight: 600; text-align: right; }
-    .btn-container { text-align: center; margin: 32px 0; }
-    .btn { display: inline-block; background-color: #e6b359; color: #0c0e12 !important; text-decoration: none; padding: 12px 28px; border-radius: 6px; font-weight: 700; font-size: 14px; letter-spacing: 0.3px; }
-    .footer { background-color: #0a0c10; padding: 20px 32px; border-top: 1px solid #1a1e27; font-size: 11px; color: #5e6675; text-align: center; line-height: 1.5; }
-    .direct-link { word-break: break-all; color: #e6b359; font-family: monospace; font-size: 12px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <div class="header-title">Ospreyn &bull; Music Rights Infrastructure</div>
-    </div>
-    <div class="content">
-      <h1>Collaborator Split Review Request</h1>
-      <p>Hello ${params.contributorName},</p>
-      <p>You have been invited by <strong>${params.ownerName || 'the song rights owner'}</strong> to review and confirm your agreed copyright and master recording ownership shares for the following release:</p>
-      
-      <div class="details-box">
-        <div class="details-row"><span class="label">Song Title:</span> <span class="value">${params.songTitle}</span></div>
-        <div class="details-row"><span class="label">Primary Artist:</span> <span class="value">${params.primaryArtist}</span></div>
-        ${params.roles && params.roles.length > 0 ? `<div class="details-row"><span class="label">Your Role:</span> <span class="value">${params.roles.join(', ')}</span></div>` : ''}
-        <div class="details-row"><span class="label">Link Expires:</span> <span class="value">${expiryDate}</span></div>
-      </div>
-
-      <p>No login or account creation is required. Click below to view the proposed composition and master recording splits, verify your percentages, and submit your confirmation:</p>
-
-      <div class="btn-container">
-        <a href="${fullReviewUrl}" class="btn" target="_blank">Review &amp; Confirm Split</a>
-      </div>
-
-      <p style="font-size: 12px; color: #798394;">If the button above does not work, copy and paste this link into your browser:</p>
-      <p class="direct-link">${fullReviewUrl}</p>
-    </div>
-    <div class="footer">
-      This is an automated rights documentation message from Ospreyn.<br>
-      Notice: Ospreyn provides independent split-recording and workflow evidence infrastructure.
-    </div>
-  </div>
-</body>
-</html>
-    `;
-
-    return this.sendEmail({ to: params.to, subject, html });
-  }
-
-  /**
-   * Notifies the song owner when a contributor confirms or requests a change.
-   */
-  async sendOwnerConfirmationNotification(params: OwnerConfirmationEmailParams) {
-    const isConfirmed = params.action === 'confirmed';
-    const subject = isConfirmed
-      ? `Confirmed: ${params.contributorName} agreed to splits for "${params.songTitle}" (v${params.versionNumber})`
-      : `Change Requested: ${params.contributorName} requested changes for "${params.songTitle}" (v${params.versionNumber})`;
-
-    const actionBadge = isConfirmed
-      ? '<span style="color: #34d399; font-weight: bold;">Confirmed Split Agreement</span>'
-      : '<span style="color: #f87171; font-weight: bold;">Requested Split Modification</span>';
-
-    const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #090a0d; color: #c5cbd4; margin: 0; padding: 24px; }
-    .container { max-width: 580px; margin: 0 auto; background-color: #0e1116; border: 1px solid #232936; border-radius: 8px; overflow: hidden; }
-    .header { background-color: #141820; padding: 24px 32px; border-bottom: 2px solid ${isConfirmed ? '#34d399' : '#f87171'}; }
-    .header-title { color: ${isConfirmed ? '#34d399' : '#f87171'}; font-size: 14px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin: 0; }
-    .content { padding: 32px; }
-    h1 { color: #ffffff; font-size: 20px; margin-top: 0; margin-bottom: 16px; font-weight: 600; }
-    p { font-size: 14px; line-height: 1.6; color: #a0a8b5; margin-bottom: 20px; }
-    .details-box { background-color: #161a22; border: 1px solid #232936; border-radius: 6px; padding: 18px 20px; margin: 24px 0; }
-    .details-row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px; }
-    .details-row:last-child { margin-bottom: 0; }
-    .label { color: #798394; }
-    .value { color: #ffffff; font-weight: 600; text-align: right; }
-    .comment-box { background-color: #1a1616; border: 1px solid #4a2222; border-radius: 6px; padding: 14px; margin: 20px 0; font-size: 13px; color: #fca5a5; }
-    .footer { background-color: #0a0c10; padding: 20px 32px; border-top: 1px solid #1a1e27; font-size: 11px; color: #5e6675; text-align: center; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <div class="header-title">Ospreyn &bull; Contributor Confirmation Update</div>
-    </div>
-    <div class="content">
-      <h1>${isConfirmed ? 'Split Confirmed' : 'Modification Requested'}</h1>
-      <p>Hello ${params.ownerName},</p>
-      <p>Contributor <strong>${params.contributorName}</strong> has reviewed their proposed ownership shares for <strong>"${params.songTitle}"</strong> and took action: ${actionBadge}.</p>
-
-      <div class="details-box">
-        <div class="details-row"><span class="label">Song:</span> <span class="value">${params.songTitle}</span></div>
-        <div class="details-row"><span class="label">Record Version:</span> <span class="value">v${params.versionNumber}.0</span></div>
-        <div class="details-row"><span class="label">Contributor:</span> <span class="value">${params.contributorName}</span></div>
-        <div class="details-row"><span class="label">Recorded At:</span> <span class="value">${params.timestamp}</span></div>
-      </div>
-
-      ${params.comment ? `
-      <p style="font-weight: 600; color: #ffffff; margin-bottom: 6px;">Contributor Note / Reason:</p>
-      <div class="comment-box">${params.comment}</div>
-      ` : ''}
-
-      <p>You can view the updated rights record status, audit ledger, and split sheets directly inside your Ospreyn workspace.</p>
-    </div>
-    <div class="footer">
-      Ospreyn Music Rights Infrastructure &bull; Automated Ledger Notification
-    </div>
-  </div>
-</body>
-</html>
-    `;
-
-    return this.sendEmail({ to: params.to, subject, html });
-  }
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
-
-export const emailService = new EmailService();

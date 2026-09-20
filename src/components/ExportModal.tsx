@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Download, Copy, Check, ShieldCheck, FileArchive } from 'lucide-react';
+import { X, Download, Copy, Check, ShieldCheck, FileArchive, FileText } from 'lucide-react';
 import { Song } from '../types';
+import { printEvidencePackage } from '../lib/printExport';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -37,13 +38,17 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadPdf = () => {
+    printEvidencePackage(exportData);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs">
       <div className="w-full max-w-2xl rounded border border-[#232936] bg-[#0f1218] p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between border-b border-[#1d222d] pb-4 shrink-0">
           <div>
             <h3 className="text-base font-semibold text-white flex items-center gap-2">
-              <FileArchive className="h-5 w-5 text-[#e6b359]" />
+              <FileArchive className="h-5 w-5 text-[#ffffff]" />
               Rights Record Evidence Package
             </h3>
             <p className="text-xs text-[#798394] mt-0.5 font-mono">
@@ -67,7 +72,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           </div>
           <div className="rounded bg-[#131720] border border-[#202633] p-2.5">
             <div className="text-[10px] uppercase font-mono text-[#798394]">Evidence Items</div>
-            <div className="text-xs font-semibold text-[#e6b359] mt-0.5">
+            <div className="text-xs font-semibold text-[#ffffff] mt-0.5">
               {(exportData?.ownershipSplits?.length || 0) + (exportData?.confirmationsRecord?.length || 0) + (exportData?.documentVault?.length || 0)} sealed
             </div>
           </div>
@@ -96,8 +101,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               Close
             </button>
             <button
+              onClick={handleDownloadPdf}
+              className="flex items-center gap-1.5 rounded border border-[#282f3d] bg-[#141820] px-3.5 py-1.5 text-xs text-[#c5cbd4] hover:text-white"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              <span>Save as PDF</span>
+            </button>
+            <button
               onClick={handleDownloadJson}
-              className="flex items-center gap-1.5 rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-4 py-1.5 text-xs font-semibold"
+              className="flex items-center gap-1.5 rounded bg-[#ffffff] hover:bg-[#e2e2e2] text-[#0c0e12] px-4 py-1.5 text-xs font-semibold"
             >
               <Download className="h-3.5 w-3.5" />
               <span>Download Evidence Package</span>

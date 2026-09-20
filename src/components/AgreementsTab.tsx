@@ -79,7 +79,7 @@ export const AgreementsTab: React.FC<AgreementsTabProps> = ({
         <button
           onClick={handleGenerate}
           disabled={generating || !validation?.isCompositionComplete || !validation?.isMasterComplete}
-          className="flex items-center gap-1.5 rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-3.5 py-1.5 text-xs font-semibold tracking-tight transition-colors disabled:opacity-40 cursor-pointer"
+          className="flex items-center gap-1.5 rounded bg-[#ffffff] hover:bg-[#e2e2e2] text-[#0c0e12] px-3.5 py-1.5 text-xs font-semibold tracking-tight transition-colors disabled:opacity-40 cursor-pointer"
         >
           <FileText className="h-3.5 w-3.5" />
           <span>{generating ? 'Compiling Agreement...' : 'Generate Split Agreement'}</span>
@@ -114,7 +114,7 @@ export const AgreementsTab: React.FC<AgreementsTabProps> = ({
                   onClick={() => setSelectedAgrId(agr.id)}
                   className={`w-full text-left p-3 rounded border transition-colors ${
                     activeAgreement?.id === agr.id
-                      ? 'bg-[#181d26] border-[#e6b359]/40 text-white'
+                      ? 'bg-[#181d26] border-[#ffffff]/40 text-white'
                       : 'bg-[#0e1116] border-[#1f242e] text-[#8c94a0] hover:bg-[#141820]'
                   }`}
                 >
@@ -142,7 +142,7 @@ export const AgreementsTab: React.FC<AgreementsTabProps> = ({
           <div className="lg:col-span-3 rounded border border-[#1f242e] bg-[#0c0e12] overflow-hidden flex flex-col">
             <div className="p-3.5 border-b border-[#1b2029] bg-[#101318] flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-[#e6b359]" />
+                <FileText className="h-4 w-4 text-[#ffffff]" />
                 <span className="text-xs font-semibold text-white truncate max-w-sm sm:max-w-md">
                   {activeAgreement?.title}
                 </span>

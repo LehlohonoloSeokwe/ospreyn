@@ -13,6 +13,7 @@ import express, { NextFunction, Request, Response } from 'express';
 import { camel, queryOne, tx } from './db';
 import * as repo from './repo';
 import { DISCLAIMER_TEXT, generateSplitSheetAgreementText } from './agreements';
+import { sendEmail, invitationEmail, confirmationNotificationEmail } from './email';
 import {
   clearSessionCookie,
   clientIp,
@@ -34,8 +35,9 @@ import {
   createUploadUrl,
   deleteObject,
   headObject,
-  storageConfigured,
+  storageMode,
 } from './storage';
+import { requestOrigin } from './localStorage';
 import { User } from '../src/types';
 
 export const apiRouter = express.Router();
@@ -51,6 +53,10 @@ const APP_ORIGIN = (process.env.APP_ORIGIN || '').replace(/\/$/, '');
 
 function reviewUrlFor(rawToken: string): string {
   return APP_ORIGIN ? `${APP_ORIGIN}/review/${rawToken}` : `/review/${rawToken}`;
+}
+
+function appUrlFor(path: string): string {
+  return APP_ORIGIN ? `${APP_ORIGIN}${path}` : path;
 }
 
 // ==========================================
@@ -771,6 +777,19 @@ apiRouter.post(
       return out;
     });
 
+    // Best-effort: a contributor without email delivery still has their raw
+    // link in the response below, so a failed send here never blocks the request.
+    for (const invitation of generated) {
+      const { subject, html, text } = invitationEmail({
+        contributorName: invitation.contributorName,
+        songTitle: song.title,
+        organisationName: organisation.name,
+        reviewUrl: invitation.reviewUrl,
+        expiresAt: invitation.expiresAt,
+      });
+      void sendEmail({ to: invitation.email, subject, html, text });
+    }
+
     res.status(201).json({
       message: `Generated ${generated.length} review link${generated.length === 1 ? '' : 's'}.`,
       invitations: generated,
@@ -1040,6 +1059,24 @@ const respondToInvitation = ah(async (req: Request, res: Response) => {
     return { confirmation, songStatus };
   });
 
+  // Best-effort notification to the workspace owner. Never blocks the
+  // contributor's response, which has already been recorded above.
+  repo
+    .getOrganisationOwner(song.organisationId)
+    .then((owner) => {
+      if (!owner) return;
+      const { subject, html, text } = confirmationNotificationEmail({
+        ownerName: owner.fullName,
+        contributorName: contributor.fullName,
+        songTitle: song.title,
+        action,
+        comment: changeRequestComment?.trim() || null,
+        songUrl: appUrlFor(`/songs/${song.id}`),
+      });
+      return sendEmail({ to: owner.email, subject, html, text });
+    })
+    .catch((err) => console.error('[ospreyn:email] owner notification failed:', err.message));
+
   res.json({ success: true, action, ...result });
 });
 
@@ -1116,6 +1153,18 @@ apiRouter.post('/songs/:id/agreements/generate', requireAuth, generateAgreement)
 // 10. DOCUMENT VAULT (private object storage)
 // ==========================================
 
+/** Lets the frontend show the operator which storage backend is active. */
+apiRouter.get(
+  '/storage/status',
+  requireAuth,
+  ah(async (_req, res) => {
+    res.json({
+      mode: storageMode,
+      durable: storageMode === 'S3',
+    });
+  }),
+);
+
 /**
  * Step 1: reserve a document row and return a short-lived presigned PUT URL.
  * The browser uploads the bytes straight to object storage; they never pass
@@ -1125,10 +1174,6 @@ apiRouter.post(
   '/songs/:id/documents/upload-url',
   requireAuth,
   ah(async (req, res) => {
-    if (!storageConfigured) {
-      return res.status(503).json({ error: 'Document storage is not configured on this server.' });
-    }
-
     const { user, organisation } = req.auth!;
     const song = await repo.getSong(req.params.id, organisation.id);
     if (!song) return res.status(404).json({ error: 'Song not found.' });
@@ -1172,7 +1217,12 @@ apiRouter.post(
       uploadedBy: user.id,
     });
 
-    const uploadUrl = await createUploadUrl(storageKey, mimeType, checksumSha256 || undefined);
+    const uploadUrl = await createUploadUrl(
+      storageKey,
+      mimeType,
+      checksumSha256 || undefined,
+      requestOrigin(req),
+    );
 
     res.status(201).json({
       documentId,
@@ -1248,7 +1298,7 @@ apiRouter.get(
       return res.status(404).json({ error: 'Document not found.' });
     }
 
-    const url = await createDownloadUrl(doc.storageKey, doc.fileName);
+    const url = await createDownloadUrl(doc.storageKey, doc.fileName, requestOrigin(req));
 
     await repo.logAuditEvent(undefined, {
       organisationId: organisation.id,

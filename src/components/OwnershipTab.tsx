@@ -233,7 +233,7 @@ export const OwnershipTab: React.FC<OwnershipTabProps> = ({
       ) : (
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-[#11141b] border border-[#1e232d] p-3.5 rounded">
           <div className="flex items-center gap-2 text-xs text-[#9aa3b2]">
-            <Info className="h-4 w-4 text-[#e6b359] shrink-0" />
+            <Info className="h-4 w-4 text-[#ffffff] shrink-0" />
             <span>
               Editing Version <strong>v{currentVersion.versionNumber}.0</strong> ({currentVersion.status.toUpperCase()}). Deterministic Basis Points (10,000 = 100.00%).
             </span>
@@ -242,7 +242,7 @@ export const OwnershipTab: React.FC<OwnershipTabProps> = ({
             <button
               onClick={handleSave}
               disabled={!isDirty || saving}
-              className="rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-4 py-1.5 text-xs font-semibold tracking-tight transition-colors disabled:opacity-40 cursor-pointer"
+              className="rounded bg-[#ffffff] hover:bg-[#e2e2e2] text-[#0c0e12] px-4 py-1.5 text-xs font-semibold tracking-tight transition-colors disabled:opacity-40 cursor-pointer"
             >
               {saving ? 'Saving...' : isDirty ? 'Save Allocations' : 'Allocations Saved'}
             </button>
@@ -264,7 +264,7 @@ export const OwnershipTab: React.FC<OwnershipTabProps> = ({
           </p>
           <button
             onClick={onNavigateToContributors}
-            className="inline-flex items-center gap-1.5 rounded bg-[#e6b359] text-[#0c0e12] px-3.5 py-1.5 text-xs font-semibold cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded bg-[#ffffff] text-[#0c0e12] px-3.5 py-1.5 text-xs font-semibold cursor-pointer"
           >
             <Plus className="h-3.5 w-3.5" />
             <span>Add Contributors First</span>
@@ -310,7 +310,7 @@ export const OwnershipTab: React.FC<OwnershipTabProps> = ({
                           value={bps === 0 ? '' : pct}
                           placeholder="0.00"
                           onChange={(e) => handleBpsChange(c.id, 'COMPOSITION', e.target.value)}
-                          className="w-24 text-right rounded border border-[#262c38] bg-[#141820] px-2.5 py-1 text-xs text-white font-mono focus:border-[#e6b359] focus:outline-hidden disabled:bg-[#0c0e12] disabled:text-[#798394]"
+                          className="w-24 text-right rounded border border-[#262c38] bg-[#141820] px-2.5 py-1 text-xs text-white font-mono focus:border-[#ffffff] focus:outline-hidden disabled:bg-[#0c0e12] disabled:text-[#798394]"
                         />
                         <span className="absolute right-7 top-1.5 text-xs text-[#5e6675] pointer-events-none">%</span>
                       </div>
@@ -362,7 +362,7 @@ export const OwnershipTab: React.FC<OwnershipTabProps> = ({
                           value={bps === 0 ? '' : pct}
                           placeholder="0.00"
                           onChange={(e) => handleBpsChange(c.id, 'MASTER', e.target.value)}
-                          className="w-24 text-right rounded border border-[#262c38] bg-[#141820] px-2.5 py-1 text-xs text-white font-mono focus:border-[#e6b359] focus:outline-hidden disabled:bg-[#0c0e12] disabled:text-[#798394]"
+                          className="w-24 text-right rounded border border-[#262c38] bg-[#141820] px-2.5 py-1 text-xs text-white font-mono focus:border-[#ffffff] focus:outline-hidden disabled:bg-[#0c0e12] disabled:text-[#798394]"
                         />
                         <span className="absolute right-7 top-1.5 text-xs text-[#5e6675] pointer-events-none">%</span>
                       </div>
@@ -421,7 +421,7 @@ export const OwnershipTab: React.FC<OwnershipTabProps> = ({
                   value={bumpReason}
                   placeholder="e.g. Added featured guitarist Kabelo Sithole; rebalanced composition shares from 50/50 to 40/35/25..."
                   onChange={(e) => setBumpReason(e.target.value)}
-                  className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#e6b359] focus:outline-hidden"
+                  className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white placeholder-[#525b6c] focus:border-[#ffffff] focus:outline-hidden"
                 />
               </div>
 
@@ -436,7 +436,7 @@ export const OwnershipTab: React.FC<OwnershipTabProps> = ({
                 <button
                   type="submit"
                   disabled={bumping || bumpReason.trim().length < 5}
-                  className="rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-4 py-1.5 text-xs font-semibold disabled:opacity-50"
+                  className="rounded bg-[#ffffff] hover:bg-[#e2e2e2] text-[#0c0e12] px-4 py-1.5 text-xs font-semibold disabled:opacity-50"
                 >
                   {bumping ? 'Creating Version...' : `Create Version ${currentVersion.versionNumber + 1}.0`}
                 </button>

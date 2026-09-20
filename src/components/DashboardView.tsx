@@ -86,7 +86,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
         <button
           onClick={onOpenCreateModal}
-          className="inline-flex items-center justify-center gap-2 rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-4 py-2 text-xs font-semibold tracking-tight transition-colors shadow-sm cursor-pointer"
+          className="inline-flex items-center justify-center gap-2 rounded bg-[#ffffff] hover:bg-[#e2e2e2] text-[#0c0e12] px-4 py-2 text-xs font-semibold tracking-tight transition-colors shadow-sm cursor-pointer"
         >
           <Plus className="h-3.5 w-3.5" />
           <span>Create Rights Record</span>
@@ -139,7 +139,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 >
                   <div className="space-y-1 pr-4">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-white group-hover:text-[#e6b359] transition-colors">
+                      <span className="text-sm font-semibold text-white group-hover:text-[#ffffff] transition-colors">
                         {song.title}
                       </span>
                       <span className="text-[10px] font-mono text-[#798394] bg-[#161a22] px-1.5 py-0.5 rounded border border-[#232936]">
@@ -182,7 +182,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </span>
                   </div>
                   <div className="text-[#8c94a0] flex items-center gap-1.5">
-                    <span className="font-mono text-[10px] text-[#e6b359] uppercase bg-[#201d14] px-1 py-0.2 rounded">
+                    <span className="font-mono text-[10px] text-[#ffffff] uppercase bg-[#201d14] px-1 py-0.2 rounded">
                       {event.eventType.replace(/_/g, ' ')}
                     </span>
                   </div>

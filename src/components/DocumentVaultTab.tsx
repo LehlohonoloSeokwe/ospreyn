@@ -140,7 +140,7 @@ export const DocumentVaultTab: React.FC<DocumentVaultTabProps> = ({
         </div>
         <button
           onClick={() => setIsUploadOpen(true)}
-          className="flex cursor-pointer items-center gap-1.5 rounded bg-[#e6b359] px-3.5 py-1.5 text-xs font-semibold tracking-tight text-[#0c0e12] transition-colors hover:bg-[#d9a444]"
+          className="flex cursor-pointer items-center gap-1.5 rounded bg-[#ffffff] px-3.5 py-1.5 text-xs font-semibold tracking-tight text-[#0c0e12] transition-colors hover:bg-[#e2e2e2]"
         >
           <Upload className="h-3.5 w-3.5" />
           <span>Upload document</span>
@@ -178,7 +178,7 @@ export const DocumentVaultTab: React.FC<DocumentVaultTabProps> = ({
               >
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <FileCheck className="h-4 w-4 shrink-0 text-[#e6b359]" />
+                    <FileCheck className="h-4 w-4 shrink-0 text-[#ffffff]" />
                     <span className="text-xs font-semibold text-white">{doc.fileName}</span>
                     <span className="rounded border border-[#273042] bg-[#1a202c] px-2 py-0.5 font-mono text-[10px] uppercase text-[#9ba4b4]">
                       {doc.category.replace(/_/g, ' ')}
@@ -248,7 +248,7 @@ export const DocumentVaultTab: React.FC<DocumentVaultTabProps> = ({
                     setFile(e.target.files?.[0] || null);
                     setError(null);
                   }}
-                  className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white file:mr-3 file:rounded file:border-0 file:bg-[#232936] file:px-2.5 file:py-1 file:text-xs file:text-[#c5cbd4] focus:border-[#e6b359] focus:outline-hidden"
+                  className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white file:mr-3 file:rounded file:border-0 file:bg-[#232936] file:px-2.5 file:py-1 file:text-xs file:text-[#c5cbd4] focus:border-[#ffffff] focus:outline-hidden"
                 />
                 {file && (
                   <p className="mt-1.5 font-mono text-[11px] text-[#798394]">
@@ -268,7 +268,7 @@ export const DocumentVaultTab: React.FC<DocumentVaultTabProps> = ({
                   id="vault-category"
                   value={category}
                   onChange={(e) => setCategory(e.target.value as DocumentCategory)}
-                  className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white focus:border-[#e6b359] focus:outline-hidden"
+                  className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white focus:border-[#ffffff] focus:outline-hidden"
                 >
                   <option value="split_agreement">Executed split agreement</option>
                   <option value="producer_agreement">Producer agreement</option>
@@ -283,7 +283,7 @@ export const DocumentVaultTab: React.FC<DocumentVaultTabProps> = ({
                 <div className="space-y-1.5">
                   <div className="h-1 overflow-hidden rounded bg-[#1a1f29]">
                     <div
-                      className="h-full bg-[#e6b359] transition-all duration-200"
+                      className="h-full bg-[#ffffff] transition-all duration-200"
                       style={{ width: `${stage === 'uploading' ? progress : 100}%` }}
                     />
                   </div>
@@ -322,7 +322,7 @@ export const DocumentVaultTab: React.FC<DocumentVaultTabProps> = ({
                 <button
                   type="submit"
                   disabled={busy || !file}
-                  className="flex items-center gap-1.5 rounded bg-[#e6b359] px-4 py-1.5 text-xs font-semibold text-[#0c0e12] hover:bg-[#d9a444] disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded bg-[#ffffff] px-4 py-1.5 text-xs font-semibold text-[#0c0e12] hover:bg-[#e2e2e2] disabled:opacity-50"
                 >
                   {busy && <Loader2 className="h-3 w-3 animate-spin" />}
                   {STAGE_LABEL[stage]}

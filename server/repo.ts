@@ -814,6 +814,19 @@ export async function getDashboardMetrics(organisationId: string) {
   };
 }
 
+export async function getOrganisationOwner(
+  organisationId: string,
+): Promise<{ id: string; fullName: string; email: string } | null> {
+  const row = await queryOne<any>(
+    `SELECT u.id, u.full_name, u.email
+       FROM organisations o
+       JOIN users u ON u.id = o.owner_id
+      WHERE o.id = $1`,
+    [organisationId],
+  );
+  return row ? camel(row) : null;
+}
+
 export async function listOrganisationsForUser(userId: string) {
   return camelAll(
     await query(

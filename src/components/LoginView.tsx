@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Shield, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { api, ApiError } from '../lib/api';
 
 interface LoginViewProps {
@@ -47,20 +48,20 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignedIn }) => {
   };
 
   const inputClass =
-    'w-full rounded border border-[#262c36] bg-[#0f1319] px-3 py-2 text-sm text-white placeholder-[#5c6574] outline-none transition-colors focus:border-[#e6b359]';
+    'w-full rounded border border-[#262c36] bg-[#0f1319] px-3 py-2 text-sm text-white placeholder-[#5c6574] outline-none transition-colors focus:border-[#ffffff]';
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#090a0d] px-4 py-12">
       <div className="w-full max-w-sm">
-        <div className="mb-8 flex items-center space-x-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded bg-[#e6b359] text-[#0c0e12]">
-            <Shield className="h-4.5 w-4.5" />
+        <Link to="/" className="mb-8 flex items-center space-x-2.5 w-fit">
+          <div className="flex h-9 w-9 items-center justify-center">
+            <img src="/assets/logo-white.png" alt="Ospreyn" className="h-7 w-7 object-contain" />
           </div>
           <div>
             <div className="text-sm font-semibold uppercase tracking-wide text-white">Ospreyn</div>
             <div className="font-mono text-[11px] text-[#8c94a0]">Music Rights Infrastructure</div>
           </div>
-        </div>
+        </Link>
 
         <h1 className="mb-1 text-xl font-semibold text-white">
           {mode === 'signin' ? 'Sign in to your workspace' : 'Create your workspace'}
@@ -159,7 +160,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignedIn }) => {
           <button
             type="submit"
             disabled={submitting}
-            className="flex w-full items-center justify-center gap-2 rounded bg-[#e6b359] px-4 py-2.5 text-sm font-semibold text-[#0c0e12] transition-colors hover:bg-[#d9a444] disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex w-full items-center justify-center gap-2 rounded bg-[#ffffff] px-4 py-2.5 text-sm font-semibold text-[#0c0e12] transition-colors hover:bg-[#e2e2e2] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {mode === 'signin' ? 'Sign in' : 'Create workspace'}
