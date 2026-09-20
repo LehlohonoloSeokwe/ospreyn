@@ -79,15 +79,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right: Actions & User Identity */}
         <div className="flex items-center space-x-2.5 sm:space-x-3">
-          <a
-            href="/api/download-zip"
-            download="ospreyn-music-rights-project.zip"
-            className="flex items-center space-x-1.5 rounded border border-[#2e3747] bg-[#161b24] hover:bg-[#1e2430] hover:border-[#3d495c] text-[#c5cbd4] hover:text-white px-2.5 sm:px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer shadow-sm"
-            title="Download the entire application source code as a ZIP file"
-          >
-            <Download className="h-3.5 w-3.5 text-[#e6b359]" />
-            <span className="hidden sm:inline">Download ZIP</span>
-          </a>
+         
 
           {activeView === 'landing' ? (
             <button
