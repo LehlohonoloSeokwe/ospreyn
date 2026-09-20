@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { FileCheck, Users, History, Lock } from 'lucide-react';
+import { FileCheck, Users, History, Lock, PenLine, Send, ShieldCheck } from 'lucide-react';
 
 const features = [
   {
@@ -73,18 +73,74 @@ export const LandingPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Quick stats strip */}
+        <div className="mx-auto mt-16 grid max-w-3xl grid-cols-1 gap-px overflow-hidden rounded border border-[#1f242e] bg-[#1f242e] sm:grid-cols-3">
+          <div className="bg-[#0e1116] px-6 py-5 text-center">
+            <div className="text-xl font-semibold text-white">Minutes</div>
+            <div className="mt-1 text-[11px] text-[#8c94a0]">to record a split and send it out</div>
+          </div>
+          <div className="bg-[#0e1116] px-6 py-5 text-center">
+            <div className="text-xl font-semibold text-white">Zero</div>
+            <div className="mt-1 text-[11px] text-[#8c94a0]">email threads chasing signatures</div>
+          </div>
+          <div className="bg-[#0e1116] px-6 py-5 text-center">
+            <div className="text-xl font-semibold text-white">100%</div>
+            <div className="mt-1 text-[11px] text-[#8c94a0]">of activity timestamped and logged</div>
+          </div>
+        </div>
+
+        {/* How it works */}
+        <div className="mt-24">
+          <h2 className="text-center text-xs font-semibold uppercase tracking-wider text-white">
+            How it works
+          </h2>
+          <div className="mt-10 grid grid-cols-1 gap-8 sm:grid-cols-3">
+            {[
+              {
+                icon: PenLine,
+                step: '01',
+                title: 'Define the splits',
+                body: 'Add a song, list every contributor, and set composition and master shares until they total exactly 100%.',
+              },
+              {
+                icon: Send,
+                step: '02',
+                title: 'Send for confirmation',
+                body: 'Each collaborator gets a private link to review and confirm their share, or ask for a change — no account required.',
+              },
+              {
+                icon: ShieldCheck,
+                step: '03',
+                title: 'Export the evidence',
+                body: 'Once everyone has confirmed, pull a complete package: splits, signatures, timestamps and supporting documents.',
+              },
+            ].map(({ icon: Icon, step, title, body }) => (
+              <div key={step} className="text-center sm:text-left">
+                <div className="flex items-center justify-center gap-2 sm:justify-start">
+                  <span className="font-mono text-[11px] text-[#5c6574]">{step}</span>
+                  <Icon className="h-4 w-4 text-white" />
+                </div>
+                <div className="mt-3 text-sm font-semibold text-white">{title}</div>
+                <p className="mt-1.5 text-xs leading-relaxed text-[#8c94a0]">{body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Features */}
-        <div className="mt-24 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          {features.map(({ icon: Icon, title, body }) => (
-            <div
-              key={title}
-              className="rounded border border-[#1f242e] bg-[#0e1116] p-5"
-            >
-              <Icon className="h-5 w-5 text-white" />
-              <div className="mt-3 text-sm font-semibold text-white">{title}</div>
-              <p className="mt-1.5 text-xs leading-relaxed text-[#8c94a0]">{body}</p>
-            </div>
-          ))}
+        <div className="mt-24">
+          <h2 className="text-center text-xs font-semibold uppercase tracking-wider text-white">
+            What's inside
+          </h2>
+          <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {features.map(({ icon: Icon, title, body }) => (
+              <div key={title} className="rounded border border-[#1f242e] bg-[#0e1116] p-5">
+                <Icon className="h-5 w-5 text-white" />
+                <div className="mt-3 text-sm font-semibold text-white">{title}</div>
+                <p className="mt-1.5 text-xs leading-relaxed text-[#8c94a0]">{body}</p>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Legal note */}
