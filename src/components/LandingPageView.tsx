@@ -45,36 +45,6 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
             Ospreyn helps independent artists, producers, and small labels document exact composition and master ownership splits, collect single-use electronic confirmations, and maintain cryptographic audit trails for lawyers, CMOs, and distributors.
           </p>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 pt-2">
-            <button
-              onClick={onEnterApp}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded bg-[#e6b359] hover:bg-[#d9a444] text-[#0c0e12] px-6 py-3 text-sm font-semibold tracking-tight transition-all shadow-lg shadow-[#e6b359]/10 cursor-pointer"
-            >
-              <span>Enter Workspace</span>
-              <ArrowRight className="h-4 w-4" />
-            </button>
-
-            <a
-              href="/api/download-zip"
-              download="ospreyn-music-rights-project.zip"
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded border border-[#2e3747] bg-[#161b24] hover:bg-[#1e2430] hover:border-[#3d495c] text-[#c5cbd4] hover:text-white px-5 py-3 text-sm font-medium transition-colors cursor-pointer"
-              title="Download entire application codebase as ZIP"
-            >
-              <Download className="h-4 w-4 text-[#e6b359]" />
-              <span>Download Project ZIP</span>
-            </a>
-
-            {onOpenDemoReview && (
-              <button
-                onClick={onOpenDemoReview}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded border border-[#2a3342] bg-[#141822] hover:bg-[#1c2230] text-[#c5cbd4] hover:text-white px-5 py-3 text-sm font-medium transition-colors cursor-pointer"
-              >
-                <span>Demo Review</span>
-                <ChevronRight className="h-4 w-4 text-[#798394]" />
-              </button>
-            )}
-          </div>
-
           <div className="flex flex-wrap items-center justify-center gap-6 pt-4 text-xs text-[#6e7787] font-mono">
             <span className="flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
