@@ -106,7 +106,7 @@ export const LandingPage: React.FC = () => {
                 icon: Send,
                 step: '02',
                 title: 'Send for confirmation',
-                body: 'Each collaborator gets a private link to review and confirm their share, or ask for a change — no account required.',
+                body: 'Each collaborator gets a private link to review and confirm their share, or ask for a change, no account required.',
               },
               {
                 icon: ShieldCheck,
