@@ -827,6 +827,35 @@ export async function getOrganisationOwner(
   return row ? camel(row) : null;
 }
 
+export async function getOwnedOrganisationsForDeletion(
+  userId: string,
+): Promise<Array<{ id: string; name: string; memberCount: number; songCount: number }>> {
+  return camelAll(
+    await query(
+      `SELECT o.id, o.name,
+              (SELECT COUNT(*) FROM organisation_members om WHERE om.organisation_id = o.id) AS member_count,
+              (SELECT COUNT(*) FROM songs s WHERE s.organisation_id = o.id) AS song_count
+         FROM organisations o
+        WHERE o.owner_id = $1`,
+      [userId],
+    ),
+  );
+}
+
+export async function listDocumentStorageKeysForOrganisations(
+  organisationIds: string[],
+): Promise<string[]> {
+  if (organisationIds.length === 0) return [];
+  const rows = await query<{ storage_key: string }>(
+    `SELECT d.storage_key
+       FROM documents d
+       JOIN songs s ON s.id = d.song_id
+      WHERE s.organisation_id = ANY($1::uuid[])`,
+    [organisationIds],
+  );
+  return rows.map((r) => r.storage_key);
+}
+
 export async function listOrganisationsForUser(userId: string) {
   return camelAll(
     await query(

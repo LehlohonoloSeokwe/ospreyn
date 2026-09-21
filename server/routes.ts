@@ -14,6 +14,7 @@ import { camel, queryOne, tx } from './db';
 import * as repo from './repo';
 import { DISCLAIMER_TEXT, generateSplitSheetAgreementText } from './agreements';
 import { sendEmail, invitationEmail, confirmationNotificationEmail } from './email';
+import { TERMS_VERSION } from './legal';
 import {
   clearSessionCookie,
   clientIp,
@@ -115,12 +116,17 @@ apiRouter.post(
       return res.status(403).json({ error: 'Registration is closed on this instance.' });
     }
 
-    const { email, password, fullName, stageName, organisationName } = req.body || {};
+    const { email, password, fullName, stageName, organisationName, acceptedTerms } = req.body || {};
     if (!email?.trim() || !password || !fullName?.trim()) {
       return res.status(400).json({ error: 'Name, email and password are required.' });
     }
     if (String(password).length < 10) {
       return res.status(400).json({ error: 'Choose a password of at least 10 characters.' });
+    }
+    if (!acceptedTerms) {
+      return res
+        .status(400)
+        .json({ error: 'You must agree to the Terms of Service and Privacy Policy to register.' });
     }
 
     const existing = await queryOne(`SELECT id FROM users WHERE lower(email) = lower($1)`, [email]);
@@ -131,9 +137,9 @@ apiRouter.post(
     const result = await tx(async (client) => {
       const userRow = (
         await client.query(
-          `INSERT INTO users (email, password_hash, full_name, stage_name)
-           VALUES (lower($1), $2, $3, $4) RETURNING *`,
-          [email.trim(), hashPassword(password), fullName.trim(), stageName?.trim() || null],
+          `INSERT INTO users (email, password_hash, full_name, stage_name, terms_accepted_at, terms_version)
+           VALUES (lower($1), $2, $3, $4, now(), $5) RETURNING *`,
+          [email.trim(), hashPassword(password), fullName.trim(), stageName?.trim() || null, TERMS_VERSION],
         )
       ).rows[0];
 
@@ -200,6 +206,96 @@ apiRouter.post(
       return res.status(403).json({ error: 'You are not a member of that workspace.' });
     }
     res.json({ currentOrganisation: camel(membership) });
+  }),
+);
+
+/**
+ * Permanent account deletion. Requires the current password as a second
+ * factor, since this is irreversible.
+ *
+ * Design note: rather than deleting the users row outright, deletion
+ * anonymises it in place (email/name/password replaced, login disabled) and
+ * revokes every session. The row itself is kept because other people's audit
+ * trails — invitations this person sent, documents they uploaded, versions
+ * they created — reference it by id, and overwriting who-did-what in someone
+ * else's evidence record would undermine the exact record-keeping this
+ * product exists to provide. This is the standard "erase personal data,
+ * retain the minimum needed for legitimate record-keeping" approach GDPR
+ * Article 17(3) and similar regimes anticipate; see the Privacy Policy's
+ * "Deleting your account" section.
+ *
+ * Any workspace this person solely owns is deleted in full, including its
+ * documents in object storage — there is no one else it could be preserved
+ * for. A workspace with other members cannot yet be deleted this way (there
+ * is no ownership-transfer flow in this build); it blocks with a clear error
+ * instead of silently orphaning collaborators.
+ */
+apiRouter.delete(
+  '/account',
+  requireAuth,
+  ah(async (req, res) => {
+    const { user } = req.auth!;
+    const { password, confirmation } = req.body || {};
+
+    if (confirmation !== 'DELETE') {
+      return res.status(400).json({ error: 'Type DELETE to confirm.' });
+    }
+    if (!password) {
+      return res.status(400).json({ error: 'Enter your password to confirm.' });
+    }
+
+    const row = await queryOne<any>(`SELECT password_hash FROM users WHERE id = $1`, [user.id]);
+    if (!row || !verifyPassword(password, row.password_hash)) {
+      return res.status(401).json({ error: 'Incorrect password.' });
+    }
+
+    const ownedOrgs = await repo.getOwnedOrganisationsForDeletion(user.id);
+    const blockedOrgs = ownedOrgs.filter((o) => o.memberCount > 1);
+    if (blockedOrgs.length > 0) {
+      return res.status(409).json({
+        error:
+          `You own ${blockedOrgs.length === 1 ? 'a workspace' : 'workspaces'} with other members ` +
+          `(${blockedOrgs.map((o) => o.name).join(', ')}). Remove the other members or contact ` +
+          `support to transfer ownership before deleting your account.`,
+      });
+    }
+
+    const ownedOrgIds = ownedOrgs.map((o) => o.id);
+    const storageKeysToDelete = await repo.listDocumentStorageKeysForOrganisations(ownedOrgIds);
+
+    await tx(async (client) => {
+      // Cascades away every song, contributor, version, allocation, invitation,
+      // confirmation, agreement, document row and audit event that belonged
+      // to this workspace — see the foreign keys in schema.sql.
+      if (ownedOrgIds.length > 0) {
+        await client.query(`DELETE FROM organisations WHERE id = ANY($1::uuid[])`, [ownedOrgIds]);
+      }
+      // Membership in any workspace this person doesn't own (not reachable in
+      // this build's single-workspace-per-user model, kept for when it is).
+      await client.query(`DELETE FROM organisation_members WHERE user_id = $1`, [user.id]);
+      await client.query(`UPDATE sessions SET revoked_at = now() WHERE user_id = $1`, [user.id]);
+
+      const tombstone = `deleted-${crypto.randomBytes(12).toString('hex')}@deleted.ospreyn.invalid`;
+      await client.query(
+        `UPDATE users
+            SET email = $2, password_hash = $3, full_name = 'Deleted user', stage_name = NULL, updated_at = now()
+          WHERE id = $1`,
+        [user.id, tombstone, hashPassword(crypto.randomBytes(24).toString('hex'))],
+      );
+    });
+
+    // Object storage isn't transactional with the database, so this runs
+    // after commit as a best-effort cleanup. A key left behind here is
+    // orphaned (unreachable — its DB row is already gone) rather than
+    // dangling, so a failure here never leaves an inconsistent record.
+    for (const key of storageKeysToDelete) {
+      await deleteObject(key).catch((err) =>
+        console.error('[account-deletion] failed to delete storage object:', key, err.message),
+      );
+    }
+
+    clearSessionCookie(res);
+    res.json({ success: true });
   }),
 );
 

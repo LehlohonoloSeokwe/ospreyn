@@ -54,7 +54,7 @@ export const LandingPage: React.FC = () => {
             Music rights infrastructure for independent teams
           </h1>
           <p className="mt-4 text-sm text-[#8c94a0] sm:text-base">
-            Record splits, collect contributor confirmations, and keep a clean audit trail,
+            Record splits, collect contributor confirmations, and keep a clean audit trail —
             from the first draft of a song to the finished agreement.
           </p>
           <div className="mt-8 flex items-center justify-center gap-3">
@@ -106,7 +106,7 @@ export const LandingPage: React.FC = () => {
                 icon: Send,
                 step: '02',
                 title: 'Send for confirmation',
-                body: 'Each collaborator gets a private link to review and confirm their share, or ask for a change, no account required.',
+                body: 'Each collaborator gets a private link to review and confirm their share, or ask for a change — no account required.',
               },
               {
                 icon: ShieldCheck,
@@ -152,8 +152,25 @@ export const LandingPage: React.FC = () => {
       </main>
 
       <footer className="border-t border-[#1a1e26] px-4 py-6 sm:px-6">
-        <div className="mx-auto max-w-6xl text-center text-[11px] text-[#5c6574]">
-          © {new Date().getFullYear()} Ospreyn. Music Rights Infrastructure.
+        <div className="mx-auto flex max-w-6xl flex-col items-center gap-3 text-center text-[11px] text-[#5c6574] sm:flex-row sm:justify-between sm:text-left">
+          <span>© {new Date().getFullYear()} Ospreyn. Music Rights Infrastructure.</span>
+          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1">
+            <Link to="/legal/terms" className="hover:text-[#8c94a0]">
+              Terms
+            </Link>
+            <Link to="/legal/privacy" className="hover:text-[#8c94a0]">
+              Privacy
+            </Link>
+            <Link to="/legal/cookies" className="hover:text-[#8c94a0]">
+              Cookies
+            </Link>
+            <Link to="/legal/acceptable-use" className="hover:text-[#8c94a0]">
+              Acceptable use
+            </Link>
+            <Link to="/legal/copyright" className="hover:text-[#8c94a0]">
+              Copyright
+            </Link>
+          </div>
         </div>
       </footer>
     </div>

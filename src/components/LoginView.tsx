@@ -16,6 +16,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignedIn }) => {
   const [fullName, setFullName] = useState('');
   const [stageName, setStageName] = useState('');
   const [organisationName, setOrganisationName] = useState('');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -33,6 +34,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignedIn }) => {
           fullName,
           stageName: stageName || undefined,
           organisationName: organisationName || undefined,
+          acceptedTerms,
         });
       }
       onSignedIn();
@@ -157,9 +159,32 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignedIn }) => {
             </div>
           )}
 
+          {mode === 'register' && (
+            <label className="flex items-start gap-2 text-[11px] text-[#8c94a0]">
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                required
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-[#262c36] bg-[#0f1319] accent-white"
+              />
+              <span>
+                I agree to the{' '}
+                <Link to="/legal/terms" target="_blank" className="text-white underline underline-offset-2">
+                  Terms of Service
+                </Link>{' '}
+                and{' '}
+                <Link to="/legal/privacy" target="_blank" className="text-white underline underline-offset-2">
+                  Privacy Policy
+                </Link>
+                .
+              </span>
+            </label>
+          )}
+
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || (mode === 'register' && !acceptedTerms)}
             className="flex w-full items-center justify-center gap-2 rounded bg-[#ffffff] px-4 py-2.5 text-sm font-semibold text-[#0c0e12] transition-colors hover:bg-[#e2e2e2] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -178,6 +203,24 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignedIn }) => {
             ? 'No workspace yet? Create one'
             : 'Already have a workspace? Sign in'}
         </button>
+
+        <div className="mt-8 flex flex-wrap justify-center gap-x-4 gap-y-1 text-[10px] text-[#5c6574]">
+          <Link to="/legal/terms" className="hover:text-[#8c94a0]">
+            Terms
+          </Link>
+          <Link to="/legal/privacy" className="hover:text-[#8c94a0]">
+            Privacy
+          </Link>
+          <Link to="/legal/cookies" className="hover:text-[#8c94a0]">
+            Cookies
+          </Link>
+          <Link to="/legal/acceptable-use" className="hover:text-[#8c94a0]">
+            Acceptable use
+          </Link>
+          <Link to="/legal/copyright" className="hover:text-[#8c94a0]">
+            Copyright
+          </Link>
+        </div>
       </div>
     </div>
   );

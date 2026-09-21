@@ -80,7 +80,7 @@ export const api = {
   post: <T = any>(path: string, body?: unknown) => apiFetch<T>(path, { method: 'POST', body }),
   put: <T = any>(path: string, body?: unknown) => apiFetch<T>(path, { method: 'PUT', body }),
   patch: <T = any>(path: string, body?: unknown) => apiFetch<T>(path, { method: 'PATCH', body }),
-  delete: <T = any>(path: string) => apiFetch<T>(path, { method: 'DELETE' }),
+  delete: <T = any>(path: string, body?: unknown) => apiFetch<T>(path, { method: 'DELETE', body }),
 };
 
 /** SHA-256 of a file, base64-encoded, for end-to-end upload integrity. */

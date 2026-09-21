@@ -16,6 +16,8 @@ import { ExportModal } from './components/ExportModal';
 import { ReviewPortalView } from './components/ReviewPortalView';
 import { LoginView } from './components/LoginView';
 import { LandingPage } from './components/LandingPage';
+import { LegalPage } from './components/legal/LegalPage';
+import { AccountSettingsView } from './components/AccountSettingsView';
 
 interface Metrics {
   totalSongs: number;
@@ -129,6 +131,9 @@ export default function App() {
       {/* Public: contributors follow a link here and never sign in. */}
       <Route path="/review/:token" element={<ReviewPortalRoute />} />
 
+      {/* Public: policy pages, linked from the landing page, login and footer. */}
+      <Route path="/legal/:slug" element={<LegalPage />} />
+
       <Route
         path="/login"
         element={
@@ -173,6 +178,15 @@ export default function App() {
         element={
           <RequireAuth>
             {shell(<SongRoute onWorkspaceChanged={loadWorkspace} />)}
+          </RequireAuth>
+        }
+      />
+
+      <Route
+        path="/account"
+        element={
+          <RequireAuth>
+            {shell(<AccountSettingsView user={user} onAccountDeleted={handleSignOut} />)}
           </RequireAuth>
         }
       />

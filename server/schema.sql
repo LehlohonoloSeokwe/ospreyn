@@ -227,3 +227,10 @@ CREATE INDEX IF NOT EXISTS idx_alloc_version ON ownership_allocations(version_id
 CREATE INDEX IF NOT EXISTS idx_invitations_token ON invitations(token_hash);
 CREATE INDEX IF NOT EXISTS idx_documents_song ON documents(song_id);
 CREATE INDEX IF NOT EXISTS idx_contributors_org ON contributors(organisation_id);
+
+-- Evidence that the account holder agreed to the Terms of Service and
+-- Privacy Policy at registration, and which version they agreed to (bump
+-- TERMS_VERSION in server/legal.ts whenever the policies materially change,
+-- which re-prompts existing users to accept the new version).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_version VARCHAR(20);
