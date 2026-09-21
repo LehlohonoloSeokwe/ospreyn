@@ -54,7 +54,7 @@ export const LandingPage: React.FC = () => {
             Music rights infrastructure for independent teams
           </h1>
           <p className="mt-4 text-sm text-[#8c94a0] sm:text-base">
-            Record splits, collect contributor confirmations, and keep a clean audit trail,
+            Record splits, collect contributor confirmations, and keep a clean audit trail —
             from the first draft of a song to the finished agreement.
           </p>
           <div className="mt-8 flex items-center justify-center gap-3">
@@ -106,7 +106,7 @@ export const LandingPage: React.FC = () => {
                 icon: Send,
                 step: '02',
                 title: 'Send for confirmation',
-                body: 'Each collaborator gets a private link to review and confirm their share, or ask for a change, no account required.',
+                body: 'Each collaborator gets a private link to review and confirm their share, or ask for a change — no account required.',
               },
               {
                 icon: ShieldCheck,

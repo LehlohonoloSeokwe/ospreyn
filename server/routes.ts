@@ -14,6 +14,12 @@ import { camel, queryOne, tx } from './db';
 import * as repo from './repo';
 import { DISCLAIMER_TEXT, generateSplitSheetAgreementText } from './agreements';
 import { sendEmail, invitationEmail, confirmationNotificationEmail } from './email';
+import {
+  sendInvitationWhatsApp,
+  sendOwnerNotificationWhatsApp,
+  toWhatsAppAddress,
+  verifyTwilioSignature,
+} from './whatsapp';
 import { TERMS_VERSION } from './legal';
 import {
   clearSessionCookie,
@@ -206,6 +212,33 @@ apiRouter.post(
       return res.status(403).json({ error: 'You are not a member of that workspace.' });
     }
     res.json({ currentOrganisation: camel(membership) });
+  }),
+);
+
+/**
+ * Lets a signed-in user set/update their WhatsApp number, so workspace-owner
+ * notifications (a contributor confirmed, requested a change, etc.) have
+ * somewhere to send WhatsApp messages to. Email notifications work without
+ * this; phone is optional and WhatsApp delivery is simply skipped without it.
+ */
+apiRouter.patch(
+  '/account/profile',
+  requireAuth,
+  ah(async (req, res) => {
+    const { user } = req.auth!;
+    const { phone } = req.body || {};
+
+    if (phone !== undefined && phone !== null && phone !== '' && !toWhatsAppAddress(phone)) {
+      return res.status(400).json({ error: 'That does not look like a valid phone number.' });
+    }
+
+    const row = await queryOne<any>(
+      `UPDATE users SET phone = $2, updated_at = now() WHERE id = $1
+       RETURNING id, email, full_name, stage_name, phone, created_at, updated_at`,
+      [user.id, phone?.trim() || null],
+    );
+
+    res.json({ user: camel(row) });
   }),
 );
 
@@ -813,13 +846,23 @@ apiRouter.post(
         );
       }
 
+      // Fetched once and sliced per contributor below, so the WhatsApp/email
+      // templates can show a role and a share percentage instead of just a link.
+      const [allAllocations, allSongContributors] = await Promise.all([
+        repo.listAllocations(currentVersion.id, client),
+        repo.listSongContributors(song.id, client),
+      ]);
+
       const out: Array<{
         invitationId: string;
         rawToken: string;
         reviewUrl: string;
         contributorName: string;
         email: string;
+        phone: string | null;
         expiresAt: string;
+        role: string;
+        sharePercent: string;
       }> = [];
 
       for (const contributorId of contributorIds) {
@@ -857,13 +900,29 @@ apiRouter.post(
           },
         });
 
+        const roles = allSongContributors
+          .filter((sc) => sc.contributorId === contributor.id)
+          .map((sc) => sc.customRoleTitle || sc.role);
+        const compBps = allAllocations
+          .filter((a) => a.contributorId === contributor.id && a.rightType === 'COMPOSITION')
+          .reduce((sum, a) => sum + a.basisPoints, 0);
+        const masterBps = allAllocations
+          .filter((a) => a.contributorId === contributor.id && a.rightType === 'MASTER')
+          .reduce((sum, a) => sum + a.basisPoints, 0);
+        const shareParts: string[] = [];
+        if (compBps > 0) shareParts.push(`Composition ${(compBps / 100).toFixed(2)}%`);
+        if (masterBps > 0) shareParts.push(`Master ${(masterBps / 100).toFixed(2)}%`);
+
         out.push({
           invitationId: invitation.id,
           rawToken,
           reviewUrl: reviewUrlFor(rawToken),
           contributorName: contributor.fullName,
           email: contributor.email,
+          phone: contributor.phone || null,
           expiresAt: expiresAt.toISOString(),
+          role: roles.join(', ') || 'Contributor',
+          sharePercent: shareParts.join(', ') || '0.00%',
         });
       }
 
@@ -873,8 +932,10 @@ apiRouter.post(
       return out;
     });
 
-    // Best-effort: a contributor without email delivery still has their raw
-    // link in the response below, so a failed send here never blocks the request.
+    // Best-effort, both channels: a contributor without delivery on either
+    // still has their raw link in the response below, so a failed send here
+    // never blocks the request. Per-invitation so one bad number/address
+    // never stops the rest of the batch from going out.
     for (const invitation of generated) {
       const { subject, html, text } = invitationEmail({
         contributorName: invitation.contributorName,
@@ -884,6 +945,35 @@ apiRouter.post(
         expiresAt: invitation.expiresAt,
       });
       void sendEmail({ to: invitation.email, subject, html, text });
+
+      const waAddress = toWhatsAppAddress(invitation.phone);
+      if (waAddress) {
+        void sendInvitationWhatsApp({
+          to: waAddress,
+          contributorName: invitation.contributorName,
+          songTitle: song.title,
+          artistName: song.primaryArtist,
+          role: invitation.role,
+          sharePercent: invitation.sharePercent,
+          reviewUrl: invitation.reviewUrl,
+          rawToken: invitation.rawToken,
+        })
+          .then((result) =>
+            repo.recordWhatsAppMessage(undefined, {
+              organisationId: organisation.id,
+              songId: song.id,
+              invitationId: invitation.invitationId,
+              direction: 'outbound',
+              purpose: 'contributor_invite',
+              toNumber: waAddress,
+              providerMessageSid: result.messageSid,
+              status: result.status,
+              payload: result.raw ? { response: result.raw } : {},
+              error: result.error || null,
+            }),
+          )
+          .catch((err) => console.error('[ospreyn:whatsapp] invite send/log failed:', err.message));
+      }
     }
 
     res.status(201).json({
@@ -1039,36 +1129,52 @@ apiRouter.get(
   }),
 );
 
-const respondToInvitation = ah(async (req: Request, res: Response) => {
-  const rawToken = req.params.rawToken || req.body?.rawToken;
-  const action = req.body?.action;
-  const participantName = req.body?.participantName;
-  const changeRequestComment = req.body?.changeRequestComment ?? req.body?.notes;
+/**
+ * Core of the dual-confirmation workflow: records a contributor's
+ * confirmed/change-requested response and notifies the workspace owner on
+ * every channel available for them (email always; WhatsApp when the owner
+ * has a phone number on file). Shared by the web review portal
+ * (respondToInvitation, below) and the WhatsApp inbound webhook
+ * (whatsappWebhook, further below) — a contributor can confirm from
+ * *either* channel and the result is identical either way, per the
+ * "confirm via EITHER channel" requirement.
+ */
+async function processInvitationResponse(input: {
+  rawToken: string;
+  action: 'confirmed' | 'change_requested';
+  participantName?: string | null;
+  changeRequestComment?: string | null;
+  ip: string | null;
+  userAgent: string;
+  channel: 'web' | 'whatsapp';
+}) {
+  const { rawToken, action, participantName, changeRequestComment, ip, userAgent, channel } = input;
 
-  if (!rawToken || !action) {
-    return res.status(400).json({ error: 'Missing invitation token or action.' });
-  }
   if (!['confirmed', 'change_requested'].includes(action)) {
-    return res.status(400).json({ error: 'Action must be confirmed or change_requested.' });
+    throw Object.assign(new Error('Action must be confirmed or change_requested.'), {
+      statusCode: 400,
+    });
   }
   if (
     action === 'change_requested' &&
     (!changeRequestComment || changeRequestComment.trim().length < 5)
   ) {
-    return res.status(400).json({ error: 'Describe the change you are asking for.' });
+    throw Object.assign(new Error('Describe the change you are asking for.'), {
+      statusCode: 400,
+    });
   }
 
   const { invitation, song, version, contributor } = await loadInvitationContext(rawToken);
 
   if (invitation.usedAt) {
-    return res.status(410).json({ error: 'You have already responded to this invitation.' });
+    throw Object.assign(new Error('You have already responded to this invitation.'), {
+      statusCode: 410,
+    });
   }
 
-  const ip = clientIp(req);
-  const userAgent = String(req.headers['user-agent'] || 'Web browser');
-
   const result = await tx(async (client) => {
-    // Serialise responses so a double-submit cannot record twice.
+    // Serialise responses so a double-submit (or a web confirm racing a
+    // WhatsApp button tap on the same invitation) cannot record twice.
     const locked = (
       await client.query(
         `SELECT used_at FROM invitations WHERE id = $1 FOR UPDATE`,
@@ -1090,7 +1196,7 @@ const respondToInvitation = ah(async (req: Request, res: Response) => {
       participantName: participantName?.trim() || contributor.fullName,
       identityReference: contributor.email,
       changeRequestComment: changeRequestComment?.trim() || null,
-      ipAddress: ip,
+      ipAddress: ip ?? undefined,
       userAgent,
     });
 
@@ -1149,35 +1255,166 @@ const respondToInvitation = ah(async (req: Request, res: Response) => {
         comment: changeRequestComment || null,
         version: version.versionNumber,
         ipAddress: ip,
+        channel,
       },
     });
 
     return { confirmation, songStatus };
   });
 
-  // Best-effort notification to the workspace owner. Never blocks the
-  // contributor's response, which has already been recorded above.
+  // Best-effort notification to the workspace owner, on every channel
+  // available for them. Never blocks the response above, which is already
+  // committed by this point.
   repo
     .getOrganisationOwner(song.organisationId)
-    .then((owner) => {
+    .then(async (owner) => {
       if (!owner) return;
       const { subject, html, text } = confirmationNotificationEmail({
         ownerName: owner.fullName,
         contributorName: contributor.fullName,
         songTitle: song.title,
-        action,
+        action: action as 'confirmed' | 'change_requested',
         comment: changeRequestComment?.trim() || null,
         songUrl: appUrlFor(`/songs/${song.id}`),
       });
-      return sendEmail({ to: owner.email, subject, html, text });
-    })
-    .catch((err) => console.error('[ospreyn:email] owner notification failed:', err.message));
+      await sendEmail({ to: owner.email, subject, html, text });
 
-  res.json({ success: true, action, ...result });
+      const waAddress = toWhatsAppAddress(owner.phone);
+      if (waAddress) {
+        const waResult = await sendOwnerNotificationWhatsApp({
+          to: waAddress,
+          ownerName: owner.fullName,
+          contributorName: contributor.fullName,
+          songTitle: song.title,
+          action: action as 'confirmed' | 'change_requested',
+          comment: changeRequestComment?.trim() || null,
+          songUrl: appUrlFor(`/songs/${song.id}`),
+        });
+        await repo.recordWhatsAppMessage(undefined, {
+          organisationId: song.organisationId,
+          songId: song.id,
+          invitationId: invitation.id,
+          direction: 'outbound',
+          purpose: 'owner_notification',
+          toNumber: waAddress,
+          providerMessageSid: waResult.messageSid,
+          status: waResult.status,
+          payload: waResult.raw ? { response: waResult.raw } : {},
+          error: waResult.error || null,
+        });
+      }
+    })
+    .catch((err) => console.error('[ospreyn:notify] owner notification failed:', err.message));
+
+  return { invitation, song, version, contributor, confirmation: result.confirmation, songStatus: result.songStatus };
+}
+
+const respondToInvitation = ah(async (req: Request, res: Response) => {
+  const rawToken = req.params.rawToken || req.body?.rawToken;
+  const action = req.body?.action;
+  const participantName = req.body?.participantName;
+  const changeRequestComment = req.body?.changeRequestComment ?? req.body?.notes;
+
+  if (!rawToken || !action) {
+    return res.status(400).json({ error: 'Missing invitation token or action.' });
+  }
+
+  const { confirmation, songStatus } = await processInvitationResponse({
+    rawToken,
+    action,
+    participantName,
+    changeRequestComment,
+    ip: clientIp(req),
+    userAgent: String(req.headers['user-agent'] || 'Web browser'),
+    channel: 'web',
+  });
+
+  res.json({ success: true, action, confirmation, songStatus });
 });
 
 apiRouter.post('/invitations/review/:rawToken/confirm', respondToInvitation);
 apiRouter.post('/invitations/respond', respondToInvitation);
+
+// ==========================================
+// 7b. WHATSAPP INBOUND WEBHOOK (public, Twilio-signed)
+// ==========================================
+//
+// Handles the quick-reply button taps from the invitation template sent in
+// sendInvitationWhatsApp. Twilio POSTs inbound messages/button events as
+// application/x-www-form-urlencoded, so this route has its own urlencoded
+// parser mounted ahead of it in index.ts — see WHATSAPP_WEBHOOK_PATH there.
+//
+// Button payload is the invitation's raw review token (see the comment on
+// sendInvitationWhatsApp for why that's safe to echo back). As a second
+// factor, the replying WhatsApp number must match the phone number on file
+// for that invitation's contributor, so a forwarded message can't be used
+// to confirm on someone else's behalf.
+apiRouter.post(
+  '/webhooks/whatsapp',
+  ah(async (req: Request, res: Response) => {
+    const params = (req.body || {}) as Record<string, string>;
+
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const fullUrl = `${protocol}://${req.get('host')}${req.originalUrl}`;
+    const signature = req.headers['x-twilio-signature'] as string | undefined;
+
+    if (process.env.NODE_ENV === 'production' && !verifyTwilioSignature(fullUrl, params, signature)) {
+      return res.status(403).send('Invalid signature.');
+    }
+
+    await repo.recordWhatsAppMessage(undefined, {
+      direction: 'inbound',
+      purpose: 'inbound_reply',
+      fromNumber: params.From || null,
+      toNumber: params.To || null,
+      providerMessageSid: params.MessageSid || params.SmsMessageSid || null,
+      status: 'received',
+      payload: params,
+    });
+
+    const buttonPayload = params.ButtonPayload; // the rawToken (see sendInvitationWhatsApp)
+    const buttonText = (params.ButtonText || '').toLowerCase();
+
+    if (!buttonPayload) {
+      // Freeform text reply, not a button tap — nothing actionable to do.
+      return res.status(200).send('<Response></Response>');
+    }
+
+    const action = buttonText.includes('change') ? 'change_requested' : 'confirmed';
+
+    try {
+      const { invitation, contributor } = await loadInvitationContext(buttonPayload);
+
+      const senderAddress = toWhatsAppAddress(contributor.phone);
+      if (!senderAddress || senderAddress !== params.From) {
+        console.warn(
+          `[ospreyn:whatsapp] button reply from ${params.From} did not match contributor phone on file for invitation ${invitation.id}; ignoring.`,
+        );
+        return res.status(200).send('<Response></Response>');
+      }
+
+      await processInvitationResponse({
+        rawToken: buttonPayload,
+        action,
+        participantName: contributor.fullName,
+        changeRequestComment:
+          action === 'change_requested'
+            ? 'Change requested via WhatsApp quick reply — contributor did not provide a written comment. Follow up directly.'
+            : null,
+        ip: null,
+        userAgent: 'WhatsApp Business API',
+        channel: 'whatsapp',
+      });
+    } catch (err: any) {
+      // Invalid/expired/already-used token, etc. Logged, not surfaced to
+      // Twilio as a failure — retries wouldn't help and Twilio doesn't need
+      // to know why.
+      console.error('[ospreyn:whatsapp] webhook response processing failed:', err.message);
+    }
+
+    res.status(200).send('<Response></Response>');
+  }),
+);
 
 // ==========================================
 // 9. AGREEMENTS

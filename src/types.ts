@@ -10,6 +10,10 @@ export interface User {
   email: string;
   fullName: string;
   stageName?: string;
+  // WhatsApp owner notifications (dual-confirmation, agreement sign-off,
+  // ownership changes) are only sent if this is set. Any SA phone format
+  // works — the backend normalises it.
+  phone?: string | null;
   createdAt: string;
   updatedAt: string;
 }

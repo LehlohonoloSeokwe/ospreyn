@@ -186,7 +186,13 @@ export default function App() {
         path="/account"
         element={
           <RequireAuth>
-            {shell(<AccountSettingsView user={user} onAccountDeleted={handleSignOut} />)}
+            {shell(
+              <AccountSettingsView
+                user={user}
+                onAccountDeleted={handleSignOut}
+                onUserUpdated={setUser}
+              />,
+            )}
           </RequireAuth>
         }
       />

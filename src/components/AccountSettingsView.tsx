@@ -6,11 +6,13 @@ import { api, ApiError } from '../lib/api';
 interface AccountSettingsViewProps {
   user: User | null;
   onAccountDeleted: () => void;
+  onUserUpdated: (user: User) => void;
 }
 
 export const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({
   user,
   onAccountDeleted,
+  onUserUpdated,
 }) => {
   const [isConfirming, setIsConfirming] = useState(false);
   const [password, setPassword] = useState('');
@@ -18,7 +20,32 @@ export const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const [phone, setPhone] = useState(user?.phone || '');
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [phoneSaving, setPhoneSaving] = useState(false);
+  const [phoneSaved, setPhoneSaved] = useState(false);
+
   const canSubmit = password.length > 0 && confirmation === 'DELETE' && !submitting;
+
+  const handleSavePhone = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setPhoneSaving(true);
+    setPhoneError(null);
+    setPhoneSaved(false);
+    try {
+      const { user: updated } = await api.patch<{ user: User }>('/account/profile', {
+        phone: phone.trim() || null,
+      });
+      onUserUpdated(updated);
+      setPhoneSaved(true);
+    } catch (err) {
+      setPhoneError(
+        err instanceof ApiError ? err.message : 'Could not save your number. Try again.',
+      );
+    } finally {
+      setPhoneSaving(false);
+    }
+  };
 
   const handleDelete = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -55,6 +82,45 @@ export const AccountSettingsView: React.FC<AccountSettingsViewProps> = ({
             <dd className="text-white">{user?.email || '—'}</dd>
           </div>
         </dl>
+
+        <form onSubmit={handleSavePhone} className="mt-4 border-t border-[#1f242e] pt-4">
+          <label htmlFor="ownerPhone" className="mb-1.5 block text-xs text-[#8c94a0]">
+            WhatsApp number
+          </label>
+          <p className="mb-2 text-xs leading-relaxed text-[#8c94a0]">
+            Used to send you WhatsApp notifications when a contributor confirms their split or
+            requests a change, alongside email. Optional — leave blank to get email only.
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              id="ownerPhone"
+              type="tel"
+              value={phone}
+              onChange={(e) => {
+                setPhone(e.target.value);
+                setPhoneSaved(false);
+              }}
+              placeholder="082 123 4567"
+              className="w-full rounded border border-[#262c36] bg-[#0f1319] px-3 py-2 text-sm text-white outline-none focus:border-white/40"
+            />
+            <button
+              type="submit"
+              disabled={phoneSaving}
+              className="flex shrink-0 items-center gap-2 rounded bg-white px-3.5 py-2 text-xs font-semibold text-[#0c0e12] transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {phoneSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Save
+            </button>
+          </div>
+          {phoneError && (
+            <div role="alert" className="mt-2 text-xs text-red-300">
+              {phoneError}
+            </div>
+          )}
+          {phoneSaved && !phoneError && (
+            <div className="mt-2 text-xs text-emerald-300">Saved.</div>
+          )}
+        </form>
       </div>
 
       <div className="mt-6 rounded border border-red-500/20 bg-red-500/5 p-5">

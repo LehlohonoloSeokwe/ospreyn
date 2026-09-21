@@ -816,15 +816,89 @@ export async function getDashboardMetrics(organisationId: string) {
 
 export async function getOrganisationOwner(
   organisationId: string,
-): Promise<{ id: string; fullName: string; email: string } | null> {
+): Promise<{ id: string; fullName: string; email: string; phone: string | null } | null> {
   const row = await queryOne<any>(
-    `SELECT u.id, u.full_name, u.email
+    `SELECT u.id, u.full_name, u.email, u.phone
        FROM organisations o
        JOIN users u ON u.id = o.owner_id
       WHERE o.id = $1`,
     [organisationId],
   );
   return row ? camel(row) : null;
+}
+
+// ==========================================
+// WhatsApp dispatch log
+// ==========================================
+
+export interface WhatsAppMessageRecord {
+  id: string;
+  organisationId: string | null;
+  songId: string | null;
+  invitationId: string | null;
+  direction: 'outbound' | 'inbound';
+  purpose: string;
+  toNumber: string | null;
+  fromNumber: string | null;
+  provider: string;
+  providerMessageSid: string | null;
+  status: string;
+  payload: Record<string, unknown>;
+  error: string | null;
+  createdAt: string;
+}
+
+export async function recordWhatsAppMessage(
+  exec: Executor | undefined,
+  params: {
+    organisationId?: string | null;
+    songId?: string | null;
+    invitationId?: string | null;
+    direction: 'outbound' | 'inbound';
+    purpose: string;
+    toNumber?: string | null;
+    fromNumber?: string | null;
+    provider?: string;
+    providerMessageSid?: string | null;
+    status: string;
+    payload?: Record<string, unknown>;
+    error?: string | null;
+  },
+): Promise<WhatsAppMessageRecord> {
+  const row = await runOne(
+    exec,
+    `INSERT INTO whatsapp_messages
+       (organisation_id, song_id, invitation_id, direction, purpose, to_number, from_number,
+        provider, provider_message_sid, status, payload, error)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+    [
+      params.organisationId || null,
+      params.songId || null,
+      params.invitationId || null,
+      params.direction,
+      params.purpose,
+      params.toNumber || null,
+      params.fromNumber || null,
+      params.provider || 'twilio',
+      params.providerMessageSid || null,
+      params.status,
+      JSON.stringify(params.payload || {}),
+      params.error || null,
+    ],
+  );
+  return camel<WhatsAppMessageRecord>(row) as WhatsAppMessageRecord;
+}
+
+/** Resolves an inbound button-reply webhook back to the invitation it answers. */
+export async function findWhatsAppMessageBySid(
+  providerMessageSid: string,
+): Promise<WhatsAppMessageRecord | null> {
+  const row = await queryOne<any>(
+    `SELECT * FROM whatsapp_messages WHERE provider_message_sid = $1 AND direction = 'outbound'
+      ORDER BY created_at DESC LIMIT 1`,
+    [providerMessageSid],
+  );
+  return row ? (camel(row) as WhatsAppMessageRecord) : null;
 }
 
 export async function getOwnedOrganisationsForDeletion(

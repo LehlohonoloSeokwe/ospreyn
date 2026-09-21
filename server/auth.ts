@@ -150,7 +150,7 @@ export async function resolveAuth(req: Request): Promise<AuthContext | null> {
   if (!rawToken) return null;
 
   const row = await queryOne<any>(
-    `SELECT u.id, u.email, u.full_name, u.stage_name, u.created_at, u.updated_at
+    `SELECT u.id, u.email, u.full_name, u.stage_name, u.phone, u.created_at, u.updated_at
        FROM sessions s
        JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = $1

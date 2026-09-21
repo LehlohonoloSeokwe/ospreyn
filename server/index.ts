@@ -70,6 +70,11 @@ app.use(
 app.use('/api/local-storage', localStorageRouter);
 
 app.use(express.json({ limit: '1mb' }));
+// Twilio's WhatsApp webhook (POST /api/webhooks/whatsapp) sends
+// application/x-www-form-urlencoded, not JSON. Safe to mount globally
+// alongside express.json() above — each only parses requests matching its
+// own Content-Type, so ordinary JSON API calls are unaffected.
+app.use(express.urlencoded({ extended: false, limit: '256kb' }));
 app.use(cookieParser());
 
 app.get('/api/health', async (_req, res) => {

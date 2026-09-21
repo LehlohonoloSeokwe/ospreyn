@@ -127,5 +127,18 @@ ${changeRequests.length > 0 ? `\n**Outstanding change requests:**\n${changeReque
 
 ### 5. NOTICE & LEGAL DISCLAIMER
 *${DISCLAIMER_TEXT}*
+
+---
+For inquiries, contact ${supportEmail()}.
 `.trim();
+}
+
+/**
+ * Support contact shown in the document footer. Defaults to the address
+ * already used as the sender identity in email.ts (EMAIL_FROM parses to
+ * notifications@ospreyn.app there) — set SUPPORT_EMAIL explicitly if the
+ * support inbox differs from that, e.g. help@ospreyn.com.
+ */
+function supportEmail(): string {
+  return process.env.SUPPORT_EMAIL || 'help@ospreyn.app';
 }

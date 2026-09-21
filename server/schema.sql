@@ -234,3 +234,36 @@ CREATE INDEX IF NOT EXISTS idx_contributors_org ON contributors(organisation_id)
 -- which re-prompts existing users to accept the new version).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_version VARCHAR(20);
+
+-- WhatsApp delivery, for owners who want owner-side notifications on the
+-- Growth/Pro tiers. Optional: workspace owners without a phone on file
+-- simply get email-only notifications.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+
+-- WhatsApp dispatch log (send + inbound button-reply correlation).
+-- Kept separate from audit_events (which is the user-facing, per-song
+-- ledger) because this table exists to answer an operational question —
+-- "what did the WhatsApp API actually say?" — and to let the inbound
+-- webhook resolve a button click back to the outbound message that
+-- produced it via provider_message_sid. Every row is also mirrored into
+-- audit_events for anything that changes record state, so the append-only
+-- audit trail requirement is satisfied without this table.
+CREATE TABLE IF NOT EXISTS whatsapp_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organisation_id UUID REFERENCES organisations(id) ON DELETE CASCADE,
+    song_id UUID REFERENCES songs(id) ON DELETE SET NULL,
+    invitation_id UUID REFERENCES invitations(id) ON DELETE SET NULL,
+    direction VARCHAR(10) NOT NULL CHECK (direction IN ('outbound', 'inbound')),
+    purpose VARCHAR(50) NOT NULL, -- 'contributor_invite', 'owner_notification', 'inbound_reply'
+    to_number VARCHAR(30),
+    from_number VARCHAR(30),
+    provider VARCHAR(20) NOT NULL DEFAULT 'twilio',
+    provider_message_sid VARCHAR(100),
+    status VARCHAR(30) NOT NULL DEFAULT 'queued', -- queued | sent | delivered | failed | received
+    payload JSONB DEFAULT '{}'::jsonb NOT NULL, -- raw request/response or webhook body, for the audit trail
+    error TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_sid ON whatsapp_messages(provider_message_sid);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_invitation ON whatsapp_messages(invitation_id);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_org ON whatsapp_messages(organisation_id);
