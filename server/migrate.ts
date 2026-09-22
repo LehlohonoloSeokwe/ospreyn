@@ -101,9 +101,38 @@ async function bootstrapOwner() {
   }
 }
 
+/**
+ * Grants platform-admin access (the /admin portal) to an existing user by
+ * email. Safe to leave set across multiple migration runs — it's just an
+ * UPDATE, not a one-time creation step, so it can also be used later to
+ * promote a different account (e.g. after `npm run migrate` with a new
+ * ADMIN_BOOTSTRAP_EMAIL) without touching the database by hand.
+ */
+async function bootstrapAdmin() {
+  const email = process.env.ADMIN_BOOTSTRAP_EMAIL;
+  if (!email) {
+    console.log('[migrate] no ADMIN_BOOTSTRAP_EMAIL set, skipping admin bootstrap');
+    return;
+  }
+
+  const result = await query(
+    `UPDATE users SET is_platform_admin = TRUE, updated_at = now() WHERE lower(email) = lower($1) RETURNING id`,
+    [email],
+  );
+  if (result.length === 0) {
+    console.warn(
+      `[migrate] ADMIN_BOOTSTRAP_EMAIL (${email}) does not match any existing user — ` +
+        'sign up with that email first, then re-run migrate.',
+    );
+  } else {
+    console.log(`[migrate] granted platform-admin access to ${email}`);
+  }
+}
+
 async function main() {
   await applySchema();
   await bootstrapOwner();
+  await bootstrapAdmin();
 
   const counts = await query<{ table_name: string }>(
     `SELECT table_name FROM information_schema.tables

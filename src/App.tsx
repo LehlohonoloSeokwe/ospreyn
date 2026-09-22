@@ -5,8 +5,9 @@ import {
   Routes,
   useNavigate,
   useParams,
+  useSearchParams,
 } from 'react-router-dom';
-import { AuditEvent, Organisation, Song, User } from './types';
+import { AuditEvent, Organisation, PlanDefinition, Song, User } from './types';
 import { api, ApiError } from './lib/api';
 import { Header } from './components/Header';
 import { DashboardView } from './components/DashboardView';
@@ -18,6 +19,7 @@ import { LoginView } from './components/LoginView';
 import { LandingPage } from './components/LandingPage';
 import { LegalPage } from './components/legal/LegalPage';
 import { AccountSettingsView } from './components/AccountSettingsView';
+import { AdminPortalView } from './components/admin/AdminPortalView';
 
 interface Metrics {
   totalSongs: number;
@@ -53,6 +55,18 @@ export default function App() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [plans, setPlans] = useState<Record<string, PlanDefinition>>({});
+  const [upgrading, setUpgrading] = useState(false);
+
+  useEffect(() => {
+    // Public endpoint — fetched once regardless of auth state, so the
+    // dashboard's usage indicator and the create-record paywall always
+    // reflect the same limits the backend actually enforces.
+    api
+      .get<Record<string, PlanDefinition>>('/plans')
+      .then(setPlans)
+      .catch(() => undefined);
+  }, []);
 
   const loadWorkspace = useCallback(async () => {
     try {
@@ -85,6 +99,19 @@ export default function App() {
     setMetrics(EMPTY_METRICS);
     setAuthState('anonymous');
     navigate('/login', { replace: true });
+  };
+
+  const handleUpgradeToPro = async () => {
+    setUpgrading(true);
+    try {
+      const { authorizationUrl } = await api.post<{ authorizationUrl: string }>(
+        '/billing/checkout',
+      );
+      window.location.href = authorizationUrl; // full navigation to Paystack, not an in-app route
+    } catch (err) {
+      console.error('Could not start checkout:', err);
+      setUpgrading(false);
+    }
   };
 
   const handleCreateSong = async (payload: Record<string, unknown>) => {
@@ -123,6 +150,19 @@ export default function App() {
       );
     }
     if (authState === 'anonymous') return <Navigate to="/login" replace />;
+    return <>{children}</>;
+  };
+
+  const RequireAdmin: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    if (authState === 'checking') {
+      return (
+        <div className="min-h-screen bg-[#090a0d]">
+          <Spinner />
+        </div>
+      );
+    }
+    if (authState === 'anonymous') return <Navigate to="/login" replace />;
+    if (!user?.isPlatformAdmin) return <Navigate to="/" replace />;
     return <>{children}</>;
   };
 
@@ -165,11 +205,24 @@ export default function App() {
                 user={user}
                 songs={songs}
                 metrics={metrics}
+                currentOrg={currentOrg}
+                plan={plans[currentOrg?.plan || 'free']}
                 onSelectSong={(id: string) => navigate(`/songs/${id}`)}
                 onOpenCreateModal={() => setIsCreateModalOpen(true)}
+                onUpgradeToPro={handleUpgradeToPro}
+                upgrading={upgrading}
               />,
             )
           )
+        }
+      />
+
+      <Route
+        path="/billing/return"
+        element={
+          <RequireAuth>
+            <BillingReturnRoute onWorkspaceChanged={loadWorkspace} />
+          </RequireAuth>
         }
       />
 
@@ -197,6 +250,11 @@ export default function App() {
         }
       />
 
+      <Route
+        path="/admin"
+        element={<RequireAdmin>{shell(<AdminPortalView />)}</RequireAdmin>}
+      />
+
       {/* Legacy in-app paths and anything unrecognised return to the dashboard. */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
@@ -207,6 +265,74 @@ export default function App() {
  * The rights record workspace. Reads its song id from the URL, so a refresh or
  * a pasted link lands on the same record.
  */
+/**
+ * Landed on after Paystack redirects back from checkout (PAYSTACK_CALLBACK_URL
+ * in .env.example should point here). Verifies the transaction server-side
+ * — the ?reference= in the URL is not itself proof of payment, so the actual
+ * upgrade only happens once GET /billing/verify/:reference confirms it with
+ * Paystack directly — then bounces back to the dashboard either way.
+ */
+const BillingReturnRoute: React.FC<{ onWorkspaceChanged: () => Promise<void> }> = ({
+  onWorkspaceChanged,
+}) => {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [status, setStatus] = useState<'verifying' | 'success' | 'failed'>('verifying');
+
+  useEffect(() => {
+    const reference = searchParams.get('reference') || searchParams.get('trxref');
+    if (!reference) {
+      setStatus('failed');
+      return;
+    }
+    api
+      .get(`/billing/verify/${encodeURIComponent(reference)}`)
+      .then(async () => {
+        await onWorkspaceChanged();
+        setStatus('success');
+        setTimeout(() => navigate('/', { replace: true }), 1500);
+      })
+      .catch((err) => {
+        console.error('Payment verification failed:', err);
+        setStatus('failed');
+      });
+    // Only run once per landing — re-running on every onWorkspaceChanged
+    // identity change would re-verify (harmless, but pointless) each time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#090a0d] px-4 text-center">
+      {status === 'verifying' && (
+        <>
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-white border-t-transparent" />
+          <p className="text-sm text-[#c5cbd4]">Confirming your payment with Paystack…</p>
+        </>
+      )}
+      {status === 'success' && (
+        <p className="text-sm text-emerald-300">
+          You're on the Pro plan. Taking you back to your dashboard…
+        </p>
+      )}
+      {status === 'failed' && (
+        <div className="space-y-3">
+          <p className="text-sm text-rose-300">
+            We couldn't confirm this payment. If you were charged, contact support before trying
+            again.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate('/', { replace: true })}
+            className="rounded bg-white px-3.5 py-2 text-xs font-semibold text-[#0c0e12] hover:bg-white/90"
+          >
+            Back to dashboard
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const SongRoute: React.FC<{ onWorkspaceChanged: () => Promise<void> }> = ({
   onWorkspaceChanged,
 }) => {

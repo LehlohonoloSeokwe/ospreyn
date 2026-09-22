@@ -21,12 +21,15 @@ import {
   verifyTwilioSignature,
 } from './whatsapp';
 import { TERMS_VERSION } from './legal';
+import { PLANS, getPlan, isValidPlanId } from './plans';
+import { initializeTransaction, verifyTransaction, verifyPaystackSignature } from './paystack';
 import {
   clearSessionCookie,
   clientIp,
   createSession,
   hashPassword,
   readSessionToken,
+  requireAdmin,
   requireAuth,
   requireRole,
   revokeSession,
@@ -65,6 +68,13 @@ function reviewUrlFor(rawToken: string): string {
 function appUrlFor(path: string): string {
   return APP_ORIGIN ? `${APP_ORIGIN}${path}` : path;
 }
+
+// Public — the pricing page needs this before sign-in, so it's the single
+// source of truth both the landing page and plan enforcement read from
+// (server/plans.ts), rather than duplicating limits/prices in the frontend.
+apiRouter.get('/plans', (_req: Request, res: Response) => {
+  res.json(PLANS);
+});
 
 // ==========================================
 // 1. AUTHENTICATION
@@ -393,6 +403,19 @@ apiRouter.post(
 
     if (!title?.trim() || !primaryArtist?.trim()) {
       return res.status(400).json({ error: 'Song title and primary artist are required.' });
+    }
+
+    const plan = getPlan(organisation.plan);
+    if (plan.maxSongs !== null) {
+      const existingCount = await repo.countSongsForOrganisation(organisation.id);
+      if (existingCount >= plan.maxSongs) {
+        return res.status(402).json({
+          error: `You've reached the ${plan.maxSongs}-project limit on the ${plan.name} plan. Upgrade to Pro for unlimited Rights Records.`,
+          code: 'PLAN_LIMIT_REACHED',
+          plan: plan.id,
+          limit: plan.maxSongs,
+        });
+      }
     }
 
     const song = await tx(async (client) => {
@@ -1786,6 +1809,250 @@ apiRouter.get(
       auditLedger: auditTrail,
       legalNotice: DISCLAIMER_TEXT,
     });
+  }),
+);
+
+// ==========================================
+// BILLING (Paystack)
+// ==========================================
+// Upgrades an organisation from Free to Pro. Checkout is owner-only
+// (requireRole('owner')) since it's a spending decision for the workspace;
+// verify and the webhook are the two ways a successful charge actually
+// changes plan — verify for the instant redirect-back confirmation, the
+// webhook as the durable source of truth (see server/paystack.ts).
+
+apiRouter.post(
+  '/billing/checkout',
+  requireAuth,
+  requireRole('owner'),
+  ah(async (req: Request, res: Response) => {
+    const { user, organisation } = req.auth!;
+
+    if (organisation.plan === 'pro') {
+      return res.status(400).json({ error: 'This workspace is already on the Pro plan.' });
+    }
+
+    const proPlan = PLANS.pro;
+    const result = await initializeTransaction({
+      email: user.email,
+      amountZarCents: Math.round(proPlan.priceMonthlyZar * 100),
+      organisationId: organisation.id,
+    });
+
+    await repo.recordPayment({
+      organisationId: organisation.id,
+      reference: result.reference,
+      eventType: 'checkout_initialized',
+      status: 'pending',
+      amountZarCents: Math.round(proPlan.priceMonthlyZar * 100),
+    });
+
+    res.json({ authorizationUrl: result.authorizationUrl, reference: result.reference });
+  }),
+);
+
+/**
+ * Called by the frontend after Paystack redirects back with ?reference=...
+ * Idempotent — safe to call more than once for the same reference (e.g. a
+ * refreshed page), since it just re-verifies and re-applies the same plan.
+ */
+apiRouter.get(
+  '/billing/verify/:reference',
+  requireAuth,
+  requireRole('owner'),
+  ah(async (req: Request, res: Response) => {
+    const { organisation } = req.auth!;
+    const result = await verifyTransaction(req.params.reference);
+
+    await repo.recordPayment({
+      organisationId: organisation.id,
+      reference: result.reference,
+      eventType: 'transaction.verify',
+      status: result.status,
+      amountZarCents: result.amountZarCents,
+      payload: { raw: result.raw },
+    });
+
+    if (!result.ok) {
+      return res.status(402).json({ error: 'Payment was not successful.', status: result.status });
+    }
+
+    await repo.setOrganisationPaystackDetails(organisation.id, {
+      plan: 'pro',
+      paystackCustomerCode: result.customerCode,
+      paystackSubscriptionCode: result.subscriptionCode,
+      planRenewsAt: result.subscriptionCode
+        ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // Paystack's webhook corrects this to the real date on subscription.create
+        : null,
+    });
+
+    await repo.logAuditEvent(undefined, {
+      organisationId: organisation.id,
+      entityType: 'billing',
+      entityId: organisation.id,
+      actorType: 'user',
+      actorName: 'Paystack checkout',
+      eventType: 'PLAN_UPGRADED',
+      metadata: { plan: 'pro', reference: result.reference },
+    });
+
+    res.json({ success: true, plan: 'pro' });
+  }),
+);
+
+/**
+ * Paystack webhook — public, signature-verified. Mounted with express.raw()
+ * ahead of express.json() in index.ts because signature verification needs
+ * the exact raw request body, not Express's re-serialized parsed copy.
+ */
+apiRouter.post(
+  '/webhooks/paystack',
+  ah(async (req: Request, res: Response) => {
+    const rawBody = (req.body as Buffer)?.toString('utf8') || '';
+    const signature = req.headers['x-paystack-signature'] as string | undefined;
+
+    if (!verifyPaystackSignature(rawBody, signature)) {
+      return res.status(401).send('Invalid signature.');
+    }
+
+    const event = JSON.parse(rawBody);
+    const data = event.data || {};
+    const organisationId: string | null = data.metadata?.organisationId || null;
+
+    // Resolve the organisation by customer code when the event doesn't carry
+    // our metadata directly (subscription lifecycle events often don't).
+    const organisation = organisationId
+      ? { id: organisationId }
+      : data.customer?.customer_code
+        ? await repo.getOrganisationByPaystackCustomerCode(data.customer.customer_code)
+        : null;
+
+    await repo.recordPayment({
+      organisationId: organisation?.id || null,
+      reference: data.reference || data.subscription_code || null,
+      eventType: event.event || 'unknown',
+      status: data.status || 'received',
+      amountZarCents: data.amount ?? null,
+      payload: event,
+    });
+
+    if (organisation) {
+      switch (event.event) {
+        case 'charge.success':
+          await repo.setOrganisationPaystackDetails(organisation.id, {
+            plan: 'pro',
+            paystackCustomerCode: data.customer?.customer_code,
+          });
+          break;
+
+        case 'subscription.create':
+          await repo.setOrganisationPaystackDetails(organisation.id, {
+            plan: 'pro',
+            paystackSubscriptionCode: data.subscription_code,
+            planRenewsAt: data.next_payment_date ? new Date(data.next_payment_date) : null,
+          });
+          break;
+
+        case 'invoice.update':
+          if (data.status === 'success' && data.subscription?.next_payment_date) {
+            await repo.setOrganisationPaystackDetails(organisation.id, {
+              planRenewsAt: new Date(data.subscription.next_payment_date),
+            });
+          }
+          break;
+
+        // Subscription ended (cancelled, or non-renewing after a failed
+        // retry cycle): downgrade back to Free rather than leaving the
+        // organisation on Pro with nothing actually being billed.
+        case 'subscription.disable':
+        case 'subscription.not_renew':
+          await repo.setOrganisationPaystackDetails(organisation.id, {
+            plan: 'free',
+            planRenewsAt: null,
+          });
+          await repo.logAuditEvent(undefined, {
+            organisationId: organisation.id,
+            entityType: 'billing',
+            entityId: organisation.id,
+            actorType: 'system',
+            actorName: 'Paystack',
+            eventType: 'PLAN_DOWNGRADED',
+            metadata: { reason: event.event },
+          });
+          break;
+
+        default:
+          break; // logged above via recordPayment either way
+      }
+    }
+
+    // Paystack only cares that this 2xx's — no meaningful body expected.
+    res.sendStatus(200);
+  }),
+);
+
+// ==========================================
+// PLATFORM ADMIN (/admin) — requires users.is_platform_admin
+// ==========================================
+// Separate from a workspace's own owner/admin/member role. See
+// server/auth.ts (requireAdmin) and .env.example (ADMIN_BOOTSTRAP_EMAIL).
+
+apiRouter.get('/admin/me', requireAuth, requireAdmin, (req: Request, res: Response) => {
+  res.json({ user: req.auth!.user });
+});
+
+apiRouter.get(
+  '/admin/stats',
+  requireAuth,
+  requireAdmin,
+  ah(async (_req, res) => {
+    res.json({ stats: await repo.getAdminStats(), plans: PLANS });
+  }),
+);
+
+apiRouter.get(
+  '/admin/organisations',
+  requireAuth,
+  requireAdmin,
+  ah(async (_req, res) => {
+    res.json(await repo.listAllOrganisationsForAdmin());
+  }),
+);
+
+apiRouter.post(
+  '/admin/organisations/:id/plan',
+  requireAuth,
+  requireAdmin,
+  ah(async (req, res) => {
+    const { user } = req.auth!;
+    const { plan } = req.body || {};
+    if (!isValidPlanId(plan)) {
+      return res.status(400).json({ error: `Plan must be one of: ${Object.keys(PLANS).join(', ')}.` });
+    }
+
+    await repo.setOrganisationPlan(req.params.id, plan);
+
+    await repo.logAuditEvent(undefined, {
+      organisationId: req.params.id,
+      entityType: 'organisation',
+      entityId: req.params.id,
+      actorType: 'user',
+      actorId: user.id,
+      actorName: `${user.fullName} (platform admin)`,
+      eventType: 'PLAN_CHANGED',
+      metadata: { plan },
+    }).catch(() => undefined); // best-effort: org may not have prior audit context
+
+    res.json({ success: true, plan });
+  }),
+);
+
+apiRouter.get(
+  '/admin/users',
+  requireAuth,
+  requireAdmin,
+  ah(async (_req, res) => {
+    res.json(await repo.listAllUsersForAdmin());
   }),
 );
 

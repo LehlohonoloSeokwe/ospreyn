@@ -150,7 +150,8 @@ export async function resolveAuth(req: Request): Promise<AuthContext | null> {
   if (!rawToken) return null;
 
   const row = await queryOne<any>(
-    `SELECT u.id, u.email, u.full_name, u.stage_name, u.phone, u.created_at, u.updated_at
+    `SELECT u.id, u.email, u.full_name, u.stage_name, u.phone, u.is_platform_admin,
+            u.created_at, u.updated_at
        FROM sessions s
        JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = $1
@@ -163,7 +164,7 @@ export async function resolveAuth(req: Request): Promise<AuthContext | null> {
   const user = camel<User>(row) as User;
 
   const requestedOrgId = req.headers['x-org-id'] as string | undefined;
-  let membership = null;
+  let membership: any = null;
 
   if (requestedOrgId) {
     membership = await queryOne<any>(
@@ -219,4 +220,18 @@ export function requireRole(...roles: WorkspaceRole[]) {
     }
     next();
   };
+}
+
+/**
+ * Route guard for the /admin platform-administration API. This checks
+ * users.is_platform_admin, which is entirely separate from a workspace's own
+ * owner/admin/member role — a workspace admin is not a platform admin.
+ * Must run after requireAuth.
+ */
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.auth) return res.status(401).json({ error: 'Not signed in.' });
+  if (!req.auth.user.isPlatformAdmin) {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+  next();
 }

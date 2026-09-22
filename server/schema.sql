@@ -267,3 +267,51 @@ CREATE TABLE IF NOT EXISTS whatsapp_messages (
 CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_sid ON whatsapp_messages(provider_message_sid);
 CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_invitation ON whatsapp_messages(invitation_id);
 CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_org ON whatsapp_messages(organisation_id);
+
+-- ==========================================
+-- Plans & platform administration
+-- ==========================================
+-- No payment processor is integrated yet. 'plan' is the source of truth for
+-- what an organisation is entitled to, and today it is set by a platform
+-- admin via /admin (e.g. after an offline/EFT payment) rather than by a
+-- checkout flow — see server/plans.ts for what each plan actually unlocks.
+ALTER TABLE organisations ADD COLUMN IF NOT EXISTS plan VARCHAR(20) NOT NULL DEFAULT 'free';
+DO $$ BEGIN
+    ALTER TABLE organisations ADD CONSTRAINT organisations_plan_check
+        CHECK (plan IN ('free', 'pro'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Platform administrators can access /admin to manage organisations, plans
+-- and users across the whole platform. This is deliberately separate from
+-- organisation_members.role ('owner'/'admin'/'member'), which only grants
+-- control within a single workspace — a workspace admin is not a platform
+-- admin. Grant this by hand in the database, or see ADMIN_BOOTSTRAP_EMAIL
+-- in .env.example for granting it automatically on first migration.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_platform_admin BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- ==========================================
+-- Billing (Paystack)
+-- ==========================================
+-- 'plan' above is still the single source of truth for what an
+-- organisation is entitled to — these columns exist only so the app can
+-- reconcile with Paystack (renew, cancel, look a customer up) rather than
+-- driving entitlement decisions directly.
+ALTER TABLE organisations ADD COLUMN IF NOT EXISTS paystack_customer_code VARCHAR(50);
+ALTER TABLE organisations ADD COLUMN IF NOT EXISTS paystack_subscription_code VARCHAR(50);
+ALTER TABLE organisations ADD COLUMN IF NOT EXISTS plan_renews_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_organisations_paystack_customer ON organisations(paystack_customer_code);
+
+-- Every checkout attempt and webhook event, for support/dispute purposes
+-- ("I paid but it says Free" is a support ticket this table answers).
+CREATE TABLE IF NOT EXISTS payments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organisation_id UUID REFERENCES organisations(id) ON DELETE SET NULL,
+    reference VARCHAR(100),
+    event_type VARCHAR(50) NOT NULL, -- 'checkout_initialized' | 'charge.success' | webhook event name
+    status VARCHAR(30) NOT NULL,
+    amount_zar_cents INTEGER,
+    payload JSONB DEFAULT '{}'::jsonb NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_payments_org ON payments(organisation_id);
+CREATE INDEX IF NOT EXISTS idx_payments_reference ON payments(reference);

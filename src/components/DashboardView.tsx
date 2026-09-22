@@ -9,7 +9,7 @@ import {
   FileText,
   Plus,
 } from 'lucide-react';
-import { Song, AuditEvent, User } from '../types';
+import { Song, AuditEvent, User, Organisation, PlanDefinition } from '../types';
 
 interface DashboardViewProps {
   user: User | null;
@@ -21,17 +21,26 @@ interface DashboardViewProps {
     awaitingConfirmationCount: number;
     recentActivity: AuditEvent[];
   };
+  currentOrg?: Organisation | null;
+  plan?: PlanDefinition;
   onSelectSong: (songId: string) => void;
   onOpenCreateModal: () => void;
+  onUpgradeToPro: () => void;
+  upgrading?: boolean;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   user,
   songs,
   metrics,
+  currentOrg,
+  plan,
   onSelectSong,
   onOpenCreateModal,
+  onUpgradeToPro,
+  upgrading,
 }) => {
+  const atLimit = Boolean(plan?.maxSongs != null && metrics.totalSongs >= plan.maxSongs);
   const getStatusBadge = (status: Song['status']) => {
     switch (status) {
       case 'completed':
@@ -84,14 +93,40 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             Catalogue Overview · Independent Rights Infrastructure
           </p>
         </div>
-        <button
-          onClick={onOpenCreateModal}
-          className="inline-flex items-center justify-center gap-2 rounded bg-[#ffffff] hover:bg-[#e2e2e2] text-[#0c0e12] px-4 py-2 text-xs font-semibold tracking-tight transition-colors shadow-sm cursor-pointer"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          <span>Create Rights Record</span>
-        </button>
+        <div className="flex flex-col items-end gap-1.5">
+          <button
+            onClick={onOpenCreateModal}
+            disabled={atLimit}
+            title={atLimit ? `You've reached the ${plan?.maxSongs} Rights Record limit on the ${plan?.name} plan.` : undefined}
+            className="inline-flex items-center justify-center gap-2 rounded bg-[#ffffff] hover:bg-[#e2e2e2] disabled:opacity-40 disabled:cursor-not-allowed text-[#0c0e12] px-4 py-2 text-xs font-semibold tracking-tight transition-colors shadow-sm cursor-pointer"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Create Rights Record</span>
+          </button>
+          {plan && plan.maxSongs != null && (
+            <span className="text-[10px] font-mono text-[#798394]">
+              {metrics.totalSongs} / {plan.maxSongs} Rights Records · {plan.name} plan
+            </span>
+          )}
+        </div>
       </div>
+
+      {atLimit && (
+        <div className="rounded border border-amber-500/25 bg-amber-500/5 px-4 py-3 text-xs text-[#c5cbd4] flex items-center justify-between gap-3 flex-wrap">
+          <span>
+            You've used all {plan?.maxSongs} Rights Records on the {plan?.name} plan. Upgrade to
+            Pro for unlimited Rights Records.
+          </span>
+          <button
+            type="button"
+            onClick={onUpgradeToPro}
+            disabled={upgrading}
+            className="shrink-0 rounded bg-white text-[#0c0e12] px-3 py-1.5 font-semibold hover:bg-[#d4d4d8] disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+          >
+            {upgrading ? 'Redirecting to Paystack…' : 'Upgrade to Pro — R249/mo'}
+          </button>
+        </div>
+      )}
 
       {/* Metrics Row (Strictly Aligned with Technical Handoff Section 21) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">

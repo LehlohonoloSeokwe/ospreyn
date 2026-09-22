@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, LogOut, Settings } from 'lucide-react';
+import { Building2, LogOut, Settings, ShieldCheck } from 'lucide-react';
 import { User, Organisation } from '../types';
 
 interface HeaderProps {
@@ -81,6 +81,16 @@ export const Header: React.FC<HeaderProps> = ({
                 {user?.stageName ? `"${user.stageName}"` : user?.email || ''}
               </div>
             </div>
+            {user?.isPlatformAdmin && (
+              <Link
+                to="/admin"
+                title="Admin portal"
+                aria-label="Admin portal"
+                className="flex h-7 w-7 items-center justify-center rounded border border-[#2c3444] bg-[#161b24] text-[#8c94a0] transition-colors hover:border-[#3d495c] hover:text-white cursor-pointer"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+              </Link>
+            )}
             <Link
               to="/account"
               title="Account settings"

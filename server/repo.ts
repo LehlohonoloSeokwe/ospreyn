@@ -15,6 +15,7 @@ import {
   ContributorConfirmation,
   DocumentRecord,
   Invitation,
+  Organisation,
   OwnershipAllocation,
   RightsRecordVersion,
   RightsValidationSummary,
@@ -939,4 +940,167 @@ export async function listOrganisationsForUser(userId: string) {
       [userId],
     ),
   );
+}
+
+// ==========================================
+// Plans & platform admin
+// ==========================================
+
+export async function countSongsForOrganisation(organisationId: string): Promise<number> {
+  const row = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::int AS count FROM songs WHERE organisation_id = $1`,
+    [organisationId],
+  );
+  return Number(row?.count ?? 0);
+}
+
+export interface AdminOrganisationRow {
+  id: string;
+  name: string;
+  plan: string;
+  ownerId: string;
+  ownerEmail: string;
+  ownerName: string;
+  memberCount: number;
+  songCount: number;
+  createdAt: string;
+}
+
+/** Every organisation on the platform, for the admin portal. */
+export async function listAllOrganisationsForAdmin(): Promise<AdminOrganisationRow[]> {
+  return camelAll(
+    await query(
+      `SELECT o.id, o.name, o.plan, o.owner_id, o.created_at,
+              u.email AS owner_email, u.full_name AS owner_name,
+              (SELECT COUNT(*) FROM organisation_members om WHERE om.organisation_id = o.id) AS member_count,
+              (SELECT COUNT(*) FROM songs s WHERE s.organisation_id = o.id) AS song_count
+         FROM organisations o
+         JOIN users u ON u.id = o.owner_id
+        ORDER BY o.created_at DESC`,
+    ),
+  );
+}
+
+export interface AdminUserRow {
+  id: string;
+  email: string;
+  fullName: string;
+  isPlatformAdmin: boolean;
+  createdAt: string;
+  organisationCount: number;
+}
+
+/** Every user on the platform, for the admin portal. */
+export async function listAllUsersForAdmin(): Promise<AdminUserRow[]> {
+  return camelAll(
+    await query(
+      `SELECT u.id, u.email, u.full_name, u.is_platform_admin, u.created_at,
+              (SELECT COUNT(*) FROM organisation_members om WHERE om.user_id = u.id) AS organisation_count
+         FROM users u
+        ORDER BY u.created_at DESC`,
+    ),
+  );
+}
+
+export async function setOrganisationPlan(organisationId: string, plan: string): Promise<void> {
+  await query(`UPDATE organisations SET plan = $2, updated_at = now() WHERE id = $1`, [
+    organisationId,
+    plan,
+  ]);
+}
+
+// ==========================================
+// Billing (Paystack)
+// ==========================================
+
+export async function recordPayment(params: {
+  organisationId: string | null;
+  reference?: string | null;
+  eventType: string;
+  status: string;
+  amountZarCents?: number | null;
+  payload?: Record<string, unknown>;
+}): Promise<void> {
+  await query(
+    `INSERT INTO payments (organisation_id, reference, event_type, status, amount_zar_cents, payload)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      params.organisationId,
+      params.reference || null,
+      params.eventType,
+      params.status,
+      params.amountZarCents ?? null,
+      JSON.stringify(params.payload || {}),
+    ],
+  );
+}
+
+export async function setOrganisationPaystackDetails(
+  organisationId: string,
+  details: {
+    plan?: string;
+    paystackCustomerCode?: string | null;
+    paystackSubscriptionCode?: string | null;
+    planRenewsAt?: Date | null;
+  },
+): Promise<void> {
+  const sets: string[] = ['updated_at = now()'];
+  const values: unknown[] = [organisationId];
+
+  if (details.plan !== undefined) {
+    values.push(details.plan);
+    sets.push(`plan = $${values.length}`);
+  }
+  if (details.paystackCustomerCode !== undefined) {
+    values.push(details.paystackCustomerCode);
+    sets.push(`paystack_customer_code = $${values.length}`);
+  }
+  if (details.paystackSubscriptionCode !== undefined) {
+    values.push(details.paystackSubscriptionCode);
+    sets.push(`paystack_subscription_code = $${values.length}`);
+  }
+  if (details.planRenewsAt !== undefined) {
+    values.push(details.planRenewsAt);
+    sets.push(`plan_renews_at = $${values.length}`);
+  }
+
+  await query(`UPDATE organisations SET ${sets.join(', ')} WHERE id = $1`, values);
+}
+
+/** Looks an organisation up by its Paystack customer code, for webhook events
+ * that identify the customer/subscription but not our organisationId directly
+ * (some subscription events don't echo back the metadata set at checkout). */
+export async function getOrganisationByPaystackCustomerCode(
+  customerCode: string,
+): Promise<Organisation | null> {
+  const row = await queryOne<any>(`SELECT * FROM organisations WHERE paystack_customer_code = $1`, [
+    customerCode,
+  ]);
+  return row ? camel<Organisation>(row) : null;
+}
+
+export interface AdminStats {
+  totalUsers: number;
+  totalOrganisations: number;
+  totalSongs: number;
+  freeOrganisations: number;
+  proOrganisations: number;
+}
+
+export async function getAdminStats(): Promise<AdminStats> {
+  const row = await queryOne<any>(
+    `SELECT
+        (SELECT COUNT(*) FROM users)::int AS total_users,
+        (SELECT COUNT(*) FROM organisations)::int AS total_organisations,
+        (SELECT COUNT(*) FROM songs)::int AS total_songs,
+        (SELECT COUNT(*) FROM organisations WHERE plan = 'free')::int AS free_organisations,
+        (SELECT COUNT(*) FROM organisations WHERE plan = 'pro')::int AS pro_organisations`,
+  );
+  return {
+    totalUsers: row?.total_users ?? 0,
+    totalOrganisations: row?.total_organisations ?? 0,
+    totalSongs: row?.total_songs ?? 0,
+    freeOrganisations: row?.free_organisations ?? 0,
+    proOrganisations: row?.pro_organisations ?? 0,
+  };
 }

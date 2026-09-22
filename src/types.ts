@@ -14,14 +14,32 @@ export interface User {
   // ownership changes) are only sent if this is set. Any SA phone format
   // works — the backend normalises it.
   phone?: string | null;
+  // Grants access to the /admin portal. Distinct from a workspace's own
+  // owner/admin/member role — see server/schema.sql.
+  isPlatformAdmin?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export type PlanId = 'free' | 'pro';
+
+export interface PlanDefinition {
+  id: PlanId;
+  name: string;
+  priceMonthlyZar: number;
+  maxSongs: number | null;
+  tagline: string;
+  features: string[];
 }
 
 export interface Organisation {
   id: string; // UUID
   name: string;
   ownerId: string;
+  plan: PlanId;
+  paystackCustomerCode?: string | null;
+  paystackSubscriptionCode?: string | null;
+  planRenewsAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

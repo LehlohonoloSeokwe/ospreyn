@@ -69,6 +69,12 @@ app.use(
 // by the global JSON parser below.
 app.use('/api/local-storage', localStorageRouter);
 
+// Mounted before express.json() so the Paystack webhook handler can verify
+// the signature against the exact raw bytes Paystack signed — re-serializing
+// a JSON-parsed body isn't guaranteed to produce byte-identical output, which
+// would make the signature check fail unpredictably.
+app.use('/api/webhooks/paystack', express.raw({ type: 'application/json', limit: '256kb' }));
+
 app.use(express.json({ limit: '1mb' }));
 // Twilio's WhatsApp webhook (POST /api/webhooks/whatsapp) sends
 // application/x-www-form-urlencoded, not JSON. Safe to mount globally
