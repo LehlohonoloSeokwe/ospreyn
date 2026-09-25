@@ -9,8 +9,18 @@ import {
   FileCheck,
   AlertTriangle,
   Loader2,
+  Info,
 } from 'lucide-react';
-import { RightsRecordVersion, DocumentCategory, DocumentRecord, Song } from '../types';
+import {
+  RightsRecordVersion,
+  DocumentCategory,
+  DocumentRecord,
+  Song,
+  EvidenceStrength,
+  DOCUMENT_CATEGORY_INFO,
+  EVIDENCE_LABEL_TEXT,
+  EVIDENCE_LABEL_COLOR,
+} from '../types';
 import { api, ApiError, sha256Base64 } from '../lib/api';
 
 interface DocumentVaultTabProps {
@@ -18,6 +28,7 @@ interface DocumentVaultTabProps {
   songId: string;
   currentVersion: RightsRecordVersion;
   documents: DocumentRecord[];
+  evidence?: EvidenceStrength | null;
   /** Refreshes the parent record once an upload has been confirmed. */
   onUploadDocument: () => Promise<void>;
 }
@@ -31,10 +42,28 @@ const STAGE_LABEL: Record<Stage, string> = {
   confirming: 'Confirming…',
 };
 
+const CATEGORY_OPTIONS: DocumentCategory[] = [
+  'split_agreement',
+  'contract',
+  'licensing_agreement',
+  'producer_agreement',
+  'master_recording',
+  'lyrics_sheet',
+  'session_notes',
+  'stems_project_files',
+  'invoice',
+  'isrc_documentation',
+  'copyright_registration',
+  'correspondence',
+  'supporting_document',
+  'other',
+];
+
 export const DocumentVaultTab: React.FC<DocumentVaultTabProps> = ({
   songId,
   currentVersion,
   documents,
+  evidence,
   onUploadDocument,
 }) => {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -127,6 +156,24 @@ export const DocumentVaultTab: React.FC<DocumentVaultTabProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Why this matters */}
+      <div className="flex items-start gap-3 rounded border border-[#1e232d] bg-[#11141b] p-4">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-[#8c94a0]" />
+        <div className="text-xs leading-relaxed text-[#8c94a0]">
+          <span className="font-semibold text-white">Why upload documents?</span> A confirmed
+          split is strong, but paperwork is what actually holds up if it's ever questioned.
+          Documents here can help <strong className="text-[#b8c0cc]">prove ownership</strong>,
+          {' '}<strong className="text-[#b8c0cc]">resolve disputes</strong>,{' '}
+          <strong className="text-[#b8c0cc]">verify contributor agreements</strong>,{' '}
+          <strong className="text-[#b8c0cc]">support royalty claims</strong>,{' '}
+          <strong className="text-[#b8c0cc]">establish a creation timeline</strong>,{' '}
+          <strong className="text-[#b8c0cc]">demonstrate chain of title</strong>, and{' '}
+          <strong className="text-[#b8c0cc]">prepare registrations with collection societies</strong>.
+        </div>
+      </div>
+
+      {evidence && <EvidenceStrengthCard evidence={evidence} />}
+
       <div className="flex flex-col gap-3 rounded border border-[#1e232d] bg-[#11141b] p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="flex items-center gap-1.5 text-sm font-semibold text-white">
@@ -135,7 +182,7 @@ export const DocumentVaultTab: React.FC<DocumentVaultTabProps> = ({
           </h3>
           <p className="mt-0.5 text-xs text-[#798394]">
             Files upload straight to private object storage. Ospreyn keeps the storage key and the
-            SHA-256 of the stored bytes.
+            SHA-256 of the stored bytes, so a stored file's integrity can always be verified.
           </p>
         </div>
         <button
@@ -167,7 +214,8 @@ export const DocumentVaultTab: React.FC<DocumentVaultTabProps> = ({
 
         {documents.length === 0 ? (
           <div className="p-10 text-center text-xs text-[#5e6675]">
-            Nothing stored yet. Upload executed agreements, correspondence or session proof here.
+            Nothing stored yet. A split sheet or a signed agreement is the single most useful
+            thing you can add here.
           </div>
         ) : (
           <div className="divide-y divide-[#181c24]">
@@ -176,12 +224,12 @@ export const DocumentVaultTab: React.FC<DocumentVaultTabProps> = ({
                 key={doc.id}
                 className="flex flex-col justify-between gap-3 p-4 transition-colors hover:bg-[#12161f] md:flex-row md:items-center"
               >
-                <div className="space-y-1">
+                <div className="space-y-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <FileCheck className="h-4 w-4 shrink-0 text-[#ffffff]" />
-                    <span className="text-xs font-semibold text-white">{doc.fileName}</span>
-                    <span className="rounded border border-[#273042] bg-[#1a202c] px-2 py-0.5 font-mono text-[10px] uppercase text-[#9ba4b4]">
-                      {doc.category.replace(/_/g, ' ')}
+                    <span className="text-xs font-semibold text-white truncate">{doc.fileName}</span>
+                    <span className="shrink-0 rounded border border-[#273042] bg-[#1a202c] px-2 py-0.5 font-mono text-[10px] uppercase text-[#9ba4b4]">
+                      {DOCUMENT_CATEGORY_INFO[doc.category]?.label || doc.category.replace(/_/g, ' ')}
                     </span>
                   </div>
                   <div className="max-w-xl truncate font-mono text-[11px] text-[#6b7585]">
@@ -243,7 +291,7 @@ export const DocumentVaultTab: React.FC<DocumentVaultTabProps> = ({
                   ref={fileInputRef}
                   type="file"
                   required
-                  accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.doc,.docx,.mp3,.wav"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.doc,.docx,.mp3,.wav,.zip"
                   onChange={(e) => {
                     setFile(e.target.files?.[0] || null);
                     setError(null);
@@ -270,13 +318,15 @@ export const DocumentVaultTab: React.FC<DocumentVaultTabProps> = ({
                   onChange={(e) => setCategory(e.target.value as DocumentCategory)}
                   className="w-full rounded border border-[#262c38] bg-[#141820] px-3 py-2 text-xs text-white focus:border-[#ffffff] focus:outline-hidden"
                 >
-                  <option value="split_agreement">Executed split agreement</option>
-                  <option value="producer_agreement">Producer agreement</option>
-                  <option value="master_recording">Master recording proof</option>
-                  <option value="lyrics_sheet">Lyrics or lead sheet</option>
-                  <option value="supporting_document">Supporting correspondence</option>
-                  <option value="other">Other evidence</option>
+                  {CATEGORY_OPTIONS.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {DOCUMENT_CATEGORY_INFO[cat].label}
+                    </option>
+                  ))}
                 </select>
+                <p className="mt-1.5 text-[11px] leading-relaxed text-[#798394]">
+                  {DOCUMENT_CATEGORY_INFO[category].helper}
+                </p>
               </div>
 
               {busy && (
@@ -332,6 +382,34 @@ export const DocumentVaultTab: React.FC<DocumentVaultTabProps> = ({
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+const EvidenceStrengthCard: React.FC<{ evidence: EvidenceStrength }> = ({ evidence }) => {
+  const color = EVIDENCE_LABEL_COLOR[evidence.label];
+  return (
+    <div className="rounded border border-[#1f242e] bg-[#0e1116] p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+          <span className="text-sm font-semibold text-white">{EVIDENCE_LABEL_TEXT[evidence.label]}</span>
+        </div>
+        <span className="font-mono text-xs text-[#8c94a0]">{evidence.score}/100</span>
+      </div>
+      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#1a1e26]">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${evidence.score}%`, backgroundColor: color }}
+        />
+      </div>
+      <p className="mt-2 text-[11px] text-[#798394]">
+        {evidence.groupsCovered} of {evidence.groupsTotal} evidence categories covered
+        {evidence.missingGroups.length > 0 && (
+          <> — consider adding: {evidence.missingGroups.join(', ')}</>
+        )}
+        .
+      </p>
     </div>
   );
 };

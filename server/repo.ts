@@ -7,7 +7,7 @@
 
 import crypto from 'crypto';
 import type { PoolClient } from 'pg';
-import { camel, camelAll, query, queryOne } from './db';
+import { camel, camelAll, query, queryOne, tx } from './db';
 import {
   Agreement,
   AuditEvent,
@@ -16,11 +16,14 @@ import {
   DocumentRecord,
   Invitation,
   Organisation,
+  OrganisationMember,
   OwnershipAllocation,
   RightsRecordVersion,
   RightsValidationSummary,
   Song,
   SongContributor,
+  TeamInvitation,
+  User,
 } from '../src/types';
 
 type Executor = Pick<PoolClient, 'query'>;
@@ -803,6 +806,7 @@ export async function getDashboardMetrics(organisationId: string) {
         COUNT(*)::int AS total_songs,
         COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_count,
         COUNT(*) FILTER (WHERE status IN ('proposed', 'confirmed'))::int AS awaiting_confirmation_count,
+        COUNT(*) FILTER (WHERE status = 'change_requested')::int AS disputed_count,
         COUNT(*) FILTER (WHERE status IN ('draft', 'change_requested'))::int AS needs_attention_count
       FROM songs WHERE organisation_id = $1`,
     [organisationId],
@@ -811,8 +815,252 @@ export async function getDashboardMetrics(organisationId: string) {
     totalSongs: row?.total_songs ?? 0,
     completedCount: row?.completed_count ?? 0,
     awaitingConfirmationCount: row?.awaiting_confirmation_count ?? 0,
+    disputedCount: row?.disputed_count ?? 0,
     needsAttentionCount: row?.needs_attention_count ?? 0,
   };
+}
+
+// ==========================================
+// Account / profile
+// ==========================================
+
+export async function updateUserProfile(
+  userId: string,
+  fields: {
+    fullName?: string;
+    stageName?: string | null;
+    bio?: string | null;
+    socialLinks?: Record<string, string>;
+    phone?: string | null;
+  },
+): Promise<User> {
+  const sets: string[] = ['updated_at = now()'];
+  const values: unknown[] = [userId];
+
+  if (fields.fullName !== undefined) {
+    values.push(fields.fullName);
+    sets.push(`full_name = $${values.length}`);
+  }
+  if (fields.stageName !== undefined) {
+    values.push(fields.stageName);
+    sets.push(`stage_name = $${values.length}`);
+  }
+  if (fields.bio !== undefined) {
+    values.push(fields.bio);
+    sets.push(`bio = $${values.length}`);
+  }
+  if (fields.socialLinks !== undefined) {
+    values.push(JSON.stringify(fields.socialLinks));
+    sets.push(`social_links = $${values.length}::jsonb`);
+  }
+  if (fields.phone !== undefined) {
+    values.push(fields.phone);
+    sets.push(`phone = $${values.length}`);
+  }
+
+  const row = await queryOne<any>(
+    `UPDATE users SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+    values,
+  );
+  const { password_hash, ...safe } = row || {};
+  return camel<User>(safe) as User;
+}
+
+/** Changing the email address resets verification — the new address hasn't been proven yet. */
+export async function updateUserEmail(userId: string, email: string): Promise<User> {
+  const row = await queryOne<any>(
+    `UPDATE users SET email = lower($2), email_verified_at = NULL, updated_at = now()
+      WHERE id = $1 RETURNING *`,
+    [userId, email],
+  );
+  const { password_hash, ...safe } = row || {};
+  return camel<User>(safe) as User;
+}
+
+export async function updateUserPassword(userId: string, passwordHash: string): Promise<void> {
+  await query(`UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1`, [
+    userId,
+    passwordHash,
+  ]);
+}
+
+export async function markEmailVerified(userId: string): Promise<void> {
+  await query(`UPDATE users SET email_verified_at = now(), updated_at = now() WHERE id = $1`, [
+    userId,
+  ]);
+}
+
+export async function setUserAvatarKey(userId: string, avatarKey: string | null): Promise<User> {
+  const row = await queryOne<any>(
+    `UPDATE users SET avatar_key = $2, updated_at = now() WHERE id = $1 RETURNING *`,
+    [userId, avatarKey],
+  );
+  const { password_hash, ...safe } = row || {};
+  return camel<User>(safe) as User;
+}
+
+export async function getUserByEmail(email: string): Promise<(User & { passwordHash: string }) | null> {
+  const row = await queryOne<any>(`SELECT * FROM users WHERE lower(email) = lower($1)`, [email]);
+  if (!row) return null;
+  return camel<User & { passwordHash: string }>({ ...row, password_hash: row.password_hash });
+}
+
+export async function getUserById(userId: string): Promise<User | null> {
+  const row = await queryOne<any>(`SELECT * FROM users WHERE id = $1`, [userId]);
+  if (!row) return null;
+  const { password_hash, ...safe } = row;
+  return camel<User>(safe) as User;
+}
+
+// ==========================================
+// Evidence Strength & catalogue-wide documents
+// ==========================================
+
+/** Every stored document across every song in an organisation — the basis for the dashboard's evidence rollup and storage usage. */
+export async function listDocumentsForOrganisation(
+  organisationId: string,
+): Promise<Array<Pick<DocumentRecord, 'id' | 'songId' | 'category' | 'fileSize'>>> {
+  return camelAll(
+    await query(
+      `SELECT d.id, d.song_id, d.category, d.file_size
+         FROM documents d
+         JOIN songs s ON s.id = d.song_id
+        WHERE s.organisation_id = $1 AND d.upload_status = 'stored'`,
+      [organisationId],
+    ),
+  );
+}
+
+// ==========================================
+// Team members & invitations
+// ==========================================
+
+export async function countOrganisationMembers(organisationId: string): Promise<number> {
+  const row = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::int AS count FROM organisation_members WHERE organisation_id = $1`,
+    [organisationId],
+  );
+  return Number(row?.count ?? 0);
+}
+
+export async function listOrganisationMembers(organisationId: string): Promise<OrganisationMember[]> {
+  return camelAll(
+    await query(
+      `SELECT om.id, om.organisation_id, om.user_id, om.role, om.created_at,
+              u.full_name, u.stage_name, u.email
+         FROM organisation_members om
+         JOIN users u ON u.id = om.user_id
+        WHERE om.organisation_id = $1
+        ORDER BY om.created_at ASC`,
+      [organisationId],
+    ),
+  );
+}
+
+export async function updateMemberRole(
+  memberId: string,
+  organisationId: string,
+  role: 'admin' | 'member',
+): Promise<OrganisationMember | null> {
+  return camel(
+    await queryOne(
+      `UPDATE organisation_members SET role = $3
+        WHERE id = $1 AND organisation_id = $2 RETURNING *`,
+      [memberId, organisationId, role],
+    ),
+  );
+}
+
+export async function removeMember(memberId: string, organisationId: string): Promise<void> {
+  await query(`DELETE FROM organisation_members WHERE id = $1 AND organisation_id = $2`, [
+    memberId,
+    organisationId,
+  ]);
+}
+
+export function hashActionToken(rawToken: string): string {
+  return crypto.createHash('sha256').update(rawToken).digest('hex');
+}
+
+export async function createTeamInvitation(params: {
+  organisationId: string;
+  email: string;
+  role: 'admin' | 'member';
+  invitedBy: string;
+  rawToken: string;
+  expiresAt: Date;
+}): Promise<TeamInvitation> {
+  const row = await queryOne(
+    `INSERT INTO organisation_invitations (organisation_id, email, role, token_hash, invited_by, expires_at)
+     VALUES ($1, lower($2), $3, $4, $5, $6) RETURNING *`,
+    [
+      params.organisationId,
+      params.email,
+      params.role,
+      hashActionToken(params.rawToken),
+      params.invitedBy,
+      params.expiresAt,
+    ],
+  );
+  return camel<TeamInvitation>(row) as TeamInvitation;
+}
+
+export async function listTeamInvitations(organisationId: string): Promise<TeamInvitation[]> {
+  return camelAll(
+    await query(
+      `SELECT * FROM organisation_invitations
+        WHERE organisation_id = $1 AND status = 'pending'
+        ORDER BY invited_at DESC`,
+      [organisationId],
+    ),
+  );
+}
+
+export async function revokeTeamInvitation(id: string, organisationId: string): Promise<void> {
+  await query(
+    `UPDATE organisation_invitations SET status = 'revoked', revoked_at = now()
+      WHERE id = $1 AND organisation_id = $2 AND status = 'pending'`,
+    [id, organisationId],
+  );
+}
+
+export async function findTeamInvitationByToken(rawToken: string): Promise<TeamInvitation | null> {
+  return camel(
+    await queryOne(
+      `SELECT * FROM organisation_invitations
+        WHERE token_hash = $1 AND status = 'pending' AND expires_at > now()`,
+      [hashActionToken(rawToken)],
+    ),
+  );
+}
+
+/** Converts an accepted invitation into workspace membership, in one transaction. */
+export async function acceptTeamInvitation(
+  invitationId: string,
+  userId: string,
+): Promise<OrganisationMember> {
+  return tx(async (client) => {
+    const invitation = (
+      await client.query(
+        `UPDATE organisation_invitations SET status = 'accepted', accepted_at = now()
+          WHERE id = $1 AND status = 'pending' RETURNING *`,
+        [invitationId],
+      )
+    ).rows[0];
+    if (!invitation) throw Object.assign(new Error('Invitation is no longer valid.'), { statusCode: 410 });
+
+    const member = (
+      await client.query(
+        `INSERT INTO organisation_members (organisation_id, user_id, role)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (organisation_id, user_id) DO UPDATE SET role = EXCLUDED.role
+         RETURNING *`,
+        [invitation.organisation_id, userId, invitation.role],
+      )
+    ).rows[0];
+
+    return camel<OrganisationMember>(member) as OrganisationMember;
+  });
 }
 
 export async function getOrganisationOwner(
@@ -1039,6 +1287,7 @@ export async function setOrganisationPaystackDetails(
   organisationId: string,
   details: {
     plan?: string;
+    billingInterval?: string;
     paystackCustomerCode?: string | null;
     paystackSubscriptionCode?: string | null;
     planRenewsAt?: Date | null;
@@ -1050,6 +1299,10 @@ export async function setOrganisationPaystackDetails(
   if (details.plan !== undefined) {
     values.push(details.plan);
     sets.push(`plan = $${values.length}`);
+  }
+  if (details.billingInterval !== undefined) {
+    values.push(details.billingInterval);
+    sets.push(`billing_interval = $${values.length}`);
   }
   if (details.paystackCustomerCode !== undefined) {
     values.push(details.paystackCustomerCode);
@@ -1083,8 +1336,7 @@ export interface AdminStats {
   totalUsers: number;
   totalOrganisations: number;
   totalSongs: number;
-  freeOrganisations: number;
-  proOrganisations: number;
+  organisationsByPlan: Record<string, number>;
 }
 
 export async function getAdminStats(): Promise<AdminStats> {
@@ -1092,15 +1344,18 @@ export async function getAdminStats(): Promise<AdminStats> {
     `SELECT
         (SELECT COUNT(*) FROM users)::int AS total_users,
         (SELECT COUNT(*) FROM organisations)::int AS total_organisations,
-        (SELECT COUNT(*) FROM songs)::int AS total_songs,
-        (SELECT COUNT(*) FROM organisations WHERE plan = 'free')::int AS free_organisations,
-        (SELECT COUNT(*) FROM organisations WHERE plan = 'pro')::int AS pro_organisations`,
+        (SELECT COUNT(*) FROM songs)::int AS total_songs`,
   );
+  const planRows = await query<{ plan: string; count: string }>(
+    `SELECT plan, COUNT(*)::int AS count FROM organisations GROUP BY plan`,
+  );
+  const organisationsByPlan: Record<string, number> = {};
+  for (const r of planRows) organisationsByPlan[r.plan] = Number(r.count);
+
   return {
     totalUsers: row?.total_users ?? 0,
     totalOrganisations: row?.total_organisations ?? 0,
     totalSongs: row?.total_songs ?? 0,
-    freeOrganisations: row?.free_organisations ?? 0,
-    proOrganisations: row?.pro_organisations ?? 0,
+    organisationsByPlan,
   };
 }

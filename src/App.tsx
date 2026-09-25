@@ -20,10 +20,17 @@ import { LandingPage } from './components/LandingPage';
 import { LegalPage } from './components/legal/LegalPage';
 import { AccountSettingsView } from './components/AccountSettingsView';
 import { AdminPortalView } from './components/admin/AdminPortalView';
+import { ForgotPasswordView } from './components/ForgotPasswordView';
+import { ResetPasswordView } from './components/ResetPasswordView';
+import { VerifyEmailView } from './components/VerifyEmailView';
+import { TeamView } from './components/TeamView';
+import { TeamAcceptView } from './components/TeamAcceptView';
+import { DashboardSummary, BillingInterval } from './types';
 
 interface Metrics {
   totalSongs: number;
   completedCount: number;
+  disputedCount: number;
   needsAttentionCount: number;
   awaitingConfirmationCount: number;
   recentActivity: AuditEvent[];
@@ -32,6 +39,7 @@ interface Metrics {
 const EMPTY_METRICS: Metrics = {
   totalSongs: 0,
   completedCount: 0,
+  disputedCount: 0,
   needsAttentionCount: 0,
   awaitingConfirmationCount: 0,
   recentActivity: [],
@@ -54,6 +62,7 @@ export default function App() {
   const [role, setRole] = useState<string | undefined>();
   const [songs, setSongs] = useState<Song[]>([]);
   const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
+  const [usage, setUsage] = useState<DashboardSummary | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [plans, setPlans] = useState<Record<string, PlanDefinition>>({});
   const [upgrading, setUpgrading] = useState(false);
@@ -76,6 +85,7 @@ export default function App() {
       setRole(data.role);
       setSongs(data.songs || []);
       setMetrics({ ...EMPTY_METRICS, ...data.metrics });
+      setUsage(data.usage || null);
       setAuthState('authenticated');
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -101,11 +111,12 @@ export default function App() {
     navigate('/login', { replace: true });
   };
 
-  const handleUpgradeToPro = async () => {
+  const handleCheckout = async (planId: string, interval: BillingInterval = 'monthly') => {
     setUpgrading(true);
     try {
       const { authorizationUrl } = await api.post<{ authorizationUrl: string }>(
         '/billing/checkout',
+        { planId, interval },
       );
       window.location.href = authorizationUrl; // full navigation to Paystack, not an in-app route
     } catch (err) {
@@ -191,6 +202,36 @@ export default function App() {
       />
 
       <Route
+        path="/forgot-password"
+        element={authState === 'authenticated' ? <Navigate to="/" replace /> : <ForgotPasswordView />}
+      />
+      <Route
+        path="/reset-password/:token"
+        element={authState === 'authenticated' ? <Navigate to="/" replace /> : <ResetPasswordView />}
+      />
+      <Route path="/verify-email/:token" element={<VerifyEmailView />} />
+
+      <Route
+        path="/team/accept/:token"
+        element={
+          authState === 'authenticated' ? (
+            <TeamAcceptView onAccepted={loadWorkspace} />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+
+      <Route
+        path="/team"
+        element={
+          <RequireAuth>
+            {shell(<TeamView currentOrg={currentOrg} role={role} plan={plans[currentOrg?.plan || 'free']} />)}
+          </RequireAuth>
+        }
+      />
+
+      <Route
         path="/"
         element={
           authState === 'checking' ? (
@@ -205,11 +246,13 @@ export default function App() {
                 user={user}
                 songs={songs}
                 metrics={metrics}
+                usage={usage}
                 currentOrg={currentOrg}
                 plan={plans[currentOrg?.plan || 'free']}
+                plans={plans}
                 onSelectSong={(id: string) => navigate(`/songs/${id}`)}
                 onOpenCreateModal={() => setIsCreateModalOpen(true)}
-                onUpgradeToPro={handleUpgradeToPro}
+                onCheckout={handleCheckout}
                 upgrading={upgrading}
               />,
             )
@@ -402,6 +445,7 @@ const SongRoute: React.FC<{ onWorkspaceChanged: () => Promise<void> }> = ({
         invitations={detail.invitations}
         agreements={detail.agreements}
         documents={detail.documents}
+        evidence={detail.evidence}
         audit={detail.audit}
         onBack={() => navigate('/')}
         onUpdateSongMetadata={async (data: any) => {

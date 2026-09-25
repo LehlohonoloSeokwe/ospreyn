@@ -95,8 +95,24 @@ netlify.toml            Build config, SPA fallback, security headers
 
 Ospreyn records what parties say they agreed, with timestamps and the addresses responses came from. It does not provide legal advice, and it does not assert that an electronic confirmation is an enforceable signature in any jurisdiction. Have the agreement text and the confirmation mechanism reviewed by qualified counsel before relying on them.
 
+## Built, but needs your configuration
+
+- **Email delivery** for review links, invitations, password resets and email verification is
+  implemented (`server/email.ts`, Resend/SendGrid/Postmark, with a console fallback for local
+  dev) — set a provider's API key in the environment or messages just print to the server log.
+- **Rate limiting on sign-in, registration, and password reset** is implemented
+  (`server/rateLimit.ts`) and applied to those routes.
+- **Automated database backups are not something the application can turn on for you** — set
+  `DATABASE_BACKUPS_CONFIGURED=true` once you've actually enabled point-in-time recovery or
+  scheduled `pg_dump` backups with your database provider. Until then, the in-product "Trust &
+  security" panel honestly reports backups as not yet configured, and no backup mechanism exists
+  in the code itself. See `DEPLOYMENT.md`.
+
 ## Not yet built
 
-- Email delivery for review links. They are generated and shown for you to send.
-- Rate limiting on sign-in. Add before opening public registration.
-- Automated database backups. Configure with your provider.
+- Email address verification is optional, not enforced — an unverified address doesn't currently
+  block any action.
+- Workspace ownership transfer (removing the sole owner of a multi-member workspace is blocked,
+  but there's no UI to hand ownership to someone else first).
+- In-app notifications. Owner alerts go out over email/WhatsApp only.
+- Bulk/catalogue-wide export. Each Rights Record can be exported individually from its own page.

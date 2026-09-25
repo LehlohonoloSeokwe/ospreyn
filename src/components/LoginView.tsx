@@ -132,9 +132,16 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignedIn }) => {
           </div>
 
           <div>
-            <label htmlFor="password" className="mb-1.5 block text-xs text-[#8c94a0]">
-              Password
-            </label>
+            <div className="mb-1.5 flex items-center justify-between">
+              <label htmlFor="password" className="block text-xs text-[#8c94a0]">
+                Password
+              </label>
+              {mode === 'signin' && (
+                <Link to="/forgot-password" className="text-[11px] text-[#8c94a0] underline hover:text-white">
+                  Forgot password?
+                </Link>
+              )}
+            </div>
             <input
               id="password"
               type="password"

@@ -10,10 +10,19 @@
 
 import crypto from 'crypto';
 import express, { NextFunction, Request, Response } from 'express';
-import { camel, queryOne, tx } from './db';
+import { camel, query, queryOne, tx } from './db';
 import * as repo from './repo';
 import { DISCLAIMER_TEXT, generateSplitSheetAgreementText } from './agreements';
-import { sendEmail, invitationEmail, confirmationNotificationEmail } from './email';
+import {
+  sendEmail,
+  invitationEmail,
+  confirmationNotificationEmail,
+  passwordResetEmail,
+  emailVerificationEmail,
+  organisationInviteEmail,
+} from './email';
+import { rateLimit, emailKey } from './rateLimit';
+import { computeEvidenceStrength } from './evidence';
 import {
   sendInvitationWhatsApp,
   sendOwnerNotificationWhatsApp,
@@ -21,11 +30,13 @@ import {
   verifyTwilioSignature,
 } from './whatsapp';
 import { TERMS_VERSION } from './legal';
-import { PLANS, getPlan, isValidPlanId } from './plans';
+import { PLANS, PLAN_COMPARISON_ROWS, getPlan, isValidPlanId, isValidBillingInterval, nextPlan } from './plans';
 import { initializeTransaction, verifyTransaction, verifyPaystackSignature } from './paystack';
 import {
   clearSessionCookie,
   clientIp,
+  consumeActionToken,
+  createActionToken,
   createSession,
   hashPassword,
   readSessionToken,
@@ -76,12 +87,23 @@ apiRouter.get('/plans', (_req: Request, res: Response) => {
   res.json(PLANS);
 });
 
+apiRouter.get('/plans/comparison', (_req: Request, res: Response) => {
+  res.json(PLAN_COMPARISON_ROWS);
+});
+
 // ==========================================
 // 1. AUTHENTICATION
 // ==========================================
 
 apiRouter.post(
   '/auth/login',
+  rateLimit({
+    scope: 'login',
+    max: 8,
+    windowMs: 15 * 60 * 1000,
+    keyExtra: emailKey,
+    message: 'Too many sign-in attempts. Try again in a few minutes, or reset your password.',
+  }),
   ah(async (req, res) => {
     const { email, password } = req.body || {};
     if (!email || !password) {
@@ -127,6 +149,12 @@ apiRouter.post(
  */
 apiRouter.post(
   '/auth/register',
+  rateLimit({
+    scope: 'register',
+    max: 10,
+    windowMs: 60 * 60 * 1000,
+    message: 'Too many accounts created from this connection recently. Try again later.',
+  }),
   ah(async (req, res) => {
     if (process.env.ALLOW_REGISTRATION === 'false') {
       return res.status(403).json({ error: 'Registration is closed on this instance.' });
@@ -236,19 +264,325 @@ apiRouter.patch(
   requireAuth,
   ah(async (req, res) => {
     const { user } = req.auth!;
-    const { phone } = req.body || {};
+    const { fullName, stageName, bio, socialLinks, phone } = req.body || {};
 
+    if (fullName !== undefined && !String(fullName).trim()) {
+      return res.status(400).json({ error: 'Full name cannot be empty.' });
+    }
     if (phone !== undefined && phone !== null && phone !== '' && !toWhatsAppAddress(phone)) {
       return res.status(400).json({ error: 'That does not look like a valid phone number.' });
     }
+    if (bio !== undefined && bio !== null && String(bio).length > 1000) {
+      return res.status(400).json({ error: 'Bio must be under 1000 characters.' });
+    }
+    let cleanSocialLinks: Record<string, string> | undefined;
+    if (socialLinks !== undefined) {
+      const allowedKeys = ['website', 'instagram', 'twitter', 'tiktok', 'spotify', 'youtube'];
+      cleanSocialLinks = {};
+      for (const key of allowedKeys) {
+        const value = socialLinks?.[key];
+        if (typeof value === 'string' && value.trim()) {
+          if (value.trim().length > 300) {
+            return res.status(400).json({ error: `${key} link is too long.` });
+          }
+          cleanSocialLinks[key] = value.trim();
+        }
+      }
+    }
 
-    const row = await queryOne<any>(
-      `UPDATE users SET phone = $2, updated_at = now() WHERE id = $1
-       RETURNING id, email, full_name, stage_name, phone, created_at, updated_at`,
-      [user.id, phone?.trim() || null],
+    const updated = await repo.updateUserProfile(user.id, {
+      ...(fullName !== undefined ? { fullName: String(fullName).trim() } : {}),
+      ...(stageName !== undefined ? { stageName: stageName?.trim() || null } : {}),
+      ...(bio !== undefined ? { bio: bio?.trim() || null } : {}),
+      ...(cleanSocialLinks !== undefined ? { socialLinks: cleanSocialLinks } : {}),
+      ...(phone !== undefined ? { phone: phone?.trim() || null } : {}),
+    });
+
+    res.json({ user: updated });
+  }),
+);
+
+/**
+ * Changing the email address requires the current password as a second
+ * factor (same standard as password change and account deletion), and
+ * resets email_verified_at — the new address is unverified until the person
+ * clicks the link this sends. Existing sessions are left alone; only the
+ * password itself signs everyone else out (see /account/password).
+ */
+apiRouter.post(
+  '/account/email',
+  requireAuth,
+  ah(async (req, res) => {
+    const { user } = req.auth!;
+    const { email, currentPassword } = req.body || {};
+
+    if (!email?.trim() || !/^\S+@\S+\.\S+$/.test(email.trim())) {
+      return res.status(400).json({ error: 'Enter a valid email address.' });
+    }
+    if (!currentPassword) {
+      return res.status(400).json({ error: 'Enter your current password to confirm this change.' });
+    }
+
+    const row = await queryOne<any>(`SELECT password_hash FROM users WHERE id = $1`, [user.id]);
+    if (!row || !verifyPassword(currentPassword, row.password_hash)) {
+      return res.status(401).json({ error: 'Current password is incorrect.' });
+    }
+
+    const existing = await queryOne(`SELECT id FROM users WHERE lower(email) = lower($1) AND id <> $2`, [
+      email.trim(),
+      user.id,
+    ]);
+    if (existing) {
+      return res.status(409).json({ error: 'Another account already uses that email.' });
+    }
+
+    const updated = await repo.updateUserEmail(user.id, email.trim());
+
+    const { rawToken } = await createActionToken(user.id, 'email_verification', 60 * 24);
+    void sendEmail({
+      to: updated.email,
+      ...emailVerificationEmail({ fullName: updated.fullName, verifyUrl: appUrlFor(`/verify-email/${rawToken}`) }),
+    });
+
+    await repo.logAuditEvent(undefined, {
+      organisationId: req.auth!.organisation.id,
+      entityType: 'workspace',
+      entityId: user.id,
+      actorType: 'user',
+      actorId: user.id,
+      actorName: user.fullName,
+      eventType: 'EMAIL_CHANGED',
+      metadata: {},
+    });
+
+    res.json({ user: updated });
+  }),
+);
+
+/** Changes the password. Requires the current password; revokes every other session on success. */
+apiRouter.post(
+  '/account/password',
+  requireAuth,
+  ah(async (req, res) => {
+    const { user } = req.auth!;
+    const { currentPassword, newPassword } = req.body || {};
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current and new password are both required.' });
+    }
+    if (String(newPassword).length < 10) {
+      return res.status(400).json({ error: 'Choose a new password of at least 10 characters.' });
+    }
+
+    const row = await queryOne<any>(`SELECT password_hash FROM users WHERE id = $1`, [user.id]);
+    if (!row || !verifyPassword(currentPassword, row.password_hash)) {
+      return res.status(401).json({ error: 'Current password is incorrect.' });
+    }
+
+    await repo.updateUserPassword(user.id, hashPassword(newPassword));
+
+    // Re-issue this session's own cookie, then revoke every other active
+    // session, so a stolen session elsewhere is cut off the moment the
+    // password changes without signing the person themselves out.
+    const currentToken = readSessionToken(req);
+    await query(
+      `UPDATE sessions SET revoked_at = now()
+        WHERE user_id = $1 AND revoked_at IS NULL AND token_hash <> $2`,
+      [user.id, currentToken ? crypto.createHash('sha256').update(currentToken).digest('hex') : ''],
     );
 
-    res.json({ user: camel(row) });
+    await repo.logAuditEvent(undefined, {
+      organisationId: req.auth!.organisation.id,
+      entityType: 'workspace',
+      entityId: user.id,
+      actorType: 'user',
+      actorId: user.id,
+      actorName: user.fullName,
+      eventType: 'PASSWORD_CHANGED',
+      metadata: {},
+    });
+
+    res.json({ success: true });
+  }),
+);
+
+/**
+ * Forgot-password. Always responds the same way whether or not the email is
+ * registered, so the endpoint can't be used to enumerate accounts. Rate
+ * limited per email + per IP (see server/rateLimit.ts) to slow down abuse.
+ */
+apiRouter.post(
+  '/auth/forgot-password',
+  rateLimit({ scope: 'forgot-password', max: 5, windowMs: 15 * 60 * 1000, keyExtra: emailKey }),
+  ah(async (req, res) => {
+    const { email } = req.body || {};
+    if (!email?.trim()) return res.status(400).json({ error: 'Enter your email address.' });
+
+    const user = await repo.getUserByEmail(email.trim());
+    if (user) {
+      const { rawToken } = await createActionToken(user.id, 'password_reset', 60);
+      void sendEmail({
+        to: user.email,
+        ...passwordResetEmail({
+          fullName: user.fullName,
+          resetUrl: appUrlFor(`/reset-password/${rawToken}`),
+          expiresInMinutes: 60,
+        }),
+      });
+    }
+
+    res.json({ success: true, message: 'If an account exists for that email, a reset link is on its way.' });
+  }),
+);
+
+apiRouter.post(
+  '/auth/reset-password',
+  rateLimit({ scope: 'reset-password', max: 10, windowMs: 15 * 60 * 1000 }),
+  ah(async (req, res) => {
+    const { token, newPassword } = req.body || {};
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: 'A reset token and new password are required.' });
+    }
+    if (String(newPassword).length < 10) {
+      return res.status(400).json({ error: 'Choose a password of at least 10 characters.' });
+    }
+
+    const userId = await consumeActionToken(token, 'password_reset');
+    if (!userId) {
+      return res.status(400).json({ error: 'This reset link is invalid or has expired. Request a new one.' });
+    }
+
+    await repo.updateUserPassword(userId, hashPassword(newPassword));
+    await query(`UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, [
+      userId,
+    ]);
+
+    // No organisation context is available at this unauthenticated endpoint
+    // (a person can belong to several workspaces), so this isn't written to
+    // any workspace's own audit_events trail — audit_events requires a real
+    // organisation_id. Server logs remain the record of this action.
+    console.log(`[password-reset] password reset via token for user ${userId}`);
+
+    res.json({ success: true });
+  }),
+);
+
+apiRouter.post(
+  '/auth/verify-email/:token',
+  ah(async (req, res) => {
+    const userId = await consumeActionToken(req.params.token, 'email_verification');
+    if (!userId) {
+      return res.status(400).json({ error: 'This verification link is invalid or has expired.' });
+    }
+    await repo.markEmailVerified(userId);
+    res.json({ success: true });
+  }),
+);
+
+apiRouter.post(
+  '/account/resend-verification',
+  requireAuth,
+  rateLimit({ scope: 'resend-verification', max: 3, windowMs: 15 * 60 * 1000 }),
+  ah(async (req, res) => {
+    const { user } = req.auth!;
+    const { rawToken } = await createActionToken(user.id, 'email_verification', 60 * 24);
+    void sendEmail({
+      to: user.email,
+      ...emailVerificationEmail({ fullName: user.fullName, verifyUrl: appUrlFor(`/verify-email/${rawToken}`) }),
+    });
+    res.json({ success: true });
+  }),
+);
+
+// --- Avatar (same private-object-storage/presigned-URL model as the document vault) ---
+
+apiRouter.post(
+  '/account/avatar/upload-url',
+  requireAuth,
+  ah(async (req, res) => {
+    const { user } = req.auth!;
+    const { fileName, mimeType, fileSize } = req.body || {};
+
+    if (!mimeType || !['image/png', 'image/jpeg', 'image/webp'].includes(mimeType)) {
+      return res.status(400).json({ error: 'Avatars must be PNG, JPEG or WebP.' });
+    }
+    if (!Number.isFinite(Number(fileSize)) || Number(fileSize) <= 0 || Number(fileSize) > 5 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Avatar images must be under 5 MB.' });
+    }
+
+    const safeName = (fileName || 'avatar').replace(/[^\w.\-]+/g, '_').slice(0, 80);
+    const storageKey = `avatars/${user.id}/${Date.now()}-${safeName}`;
+    const uploadUrl = await createUploadUrl(storageKey, mimeType, undefined, requestOrigin(req));
+
+    res.json({ storageKey, uploadUrl });
+  }),
+);
+
+apiRouter.post(
+  '/account/avatar/complete',
+  requireAuth,
+  ah(async (req, res) => {
+    const { user } = req.auth!;
+    const { storageKey } = req.body || {};
+    if (!storageKey?.startsWith(`avatars/${user.id}/`)) {
+      return res.status(400).json({ error: 'Invalid storage key.' });
+    }
+
+    const head = await headObject(storageKey);
+    if (!head) {
+      return res.status(409).json({ error: 'The upload did not complete. Try again.' });
+    }
+
+    // Best-effort cleanup of the previous avatar so orphaned images don't accumulate.
+    if (user.avatarKey && user.avatarKey !== storageKey) {
+      deleteObject(user.avatarKey).catch(() => undefined);
+    }
+
+    const updated = await repo.setUserAvatarKey(user.id, storageKey);
+    res.json({ user: updated });
+  }),
+);
+
+apiRouter.delete(
+  '/account/avatar',
+  requireAuth,
+  ah(async (req, res) => {
+    const { user } = req.auth!;
+    if (user.avatarKey) deleteObject(user.avatarKey).catch(() => undefined);
+    const updated = await repo.setUserAvatarKey(user.id, null);
+    res.json({ user: updated });
+  }),
+);
+
+apiRouter.get(
+  '/account/avatar-url',
+  requireAuth,
+  ah(async (req, res) => {
+    const { user } = req.auth!;
+    if (!user.avatarKey) return res.json({ url: null });
+    const url = await createDownloadUrl(user.avatarKey, 'avatar', requestOrigin(req));
+    res.json({ url });
+  }),
+);
+
+/**
+ * Read-only summary of what this build actually does to protect an account —
+ * powers the in-product "Trust & security" panel. Every field here is either
+ * a fact about how the code works (no interpretation needed) or a real
+ * environment flag, never a claim the code doesn't back up.
+ */
+apiRouter.get(
+  '/account/security',
+  requireAuth,
+  ah(async (_req, res) => {
+    res.json({
+      passwordAlgorithm: 'scrypt (per-user salt, constant-time verification)',
+      sessionModel: 'Server-side sessions; only a SHA-256 hash of the session token is stored',
+      documentIntegrity: 'SHA-256 checksum verified against every stored document',
+      auditTrail: 'Append-only — every ownership, invitation and confirmation event is logged and cannot be edited or deleted',
+      backupsConfigured: process.env.DATABASE_BACKUPS_CONFIGURED === 'true',
+      rateLimited: true,
+    });
   }),
 );
 
@@ -343,18 +677,259 @@ apiRouter.delete(
 );
 
 // ==========================================
+// 1b. TEAM MANAGEMENT — invite, list, remove workspace members
+// ==========================================
+// organisation_members covers people who already hold membership;
+// organisation_invitations covers someone named by email who may not have
+// an account yet. maxTeamMembers is enforced from the plan (see
+// server/plans.ts) the same way maxSongs is enforced on song creation.
+
+apiRouter.get(
+  '/team/members',
+  requireAuth,
+  ah(async (req, res) => {
+    res.json(await repo.listOrganisationMembers(req.auth!.organisation.id));
+  }),
+);
+
+apiRouter.get(
+  '/team/invitations',
+  requireAuth,
+  requireRole('owner', 'admin'),
+  ah(async (req, res) => {
+    res.json(await repo.listTeamInvitations(req.auth!.organisation.id));
+  }),
+);
+
+apiRouter.post(
+  '/team/invitations',
+  requireAuth,
+  requireRole('owner', 'admin'),
+  ah(async (req, res) => {
+    const { user, organisation } = req.auth!;
+    const { email, role } = req.body || {};
+
+    if (!email?.trim() || !/^\S+@\S+\.\S+$/.test(email.trim())) {
+      return res.status(400).json({ error: 'Enter a valid email address.' });
+    }
+    if (role !== 'admin' && role !== 'member') {
+      return res.status(400).json({ error: 'Role must be "admin" or "member".' });
+    }
+
+    const plan = getPlan(organisation.plan);
+    if (plan.maxTeamMembers !== null) {
+      const [memberCount, pendingInvites] = await Promise.all([
+        repo.countOrganisationMembers(organisation.id),
+        repo.listTeamInvitations(organisation.id),
+      ]);
+      if (memberCount + pendingInvites.length >= plan.maxTeamMembers) {
+        const upgrade = nextPlan(plan.id);
+        return res.status(402).json({
+          error: upgrade
+            ? `This workspace is at its ${plan.maxTeamMembers}-member limit on the ${plan.name} plan. Upgrade to ${upgrade.name} for more seats.`
+            : `This workspace is at its ${plan.maxTeamMembers}-member limit on the ${plan.name} plan.`,
+          code: 'PLAN_LIMIT_REACHED',
+          suggestedPlan: upgrade?.id || null,
+        });
+      }
+    }
+
+    const alreadyMember = await queryOne(
+      `SELECT om.id FROM organisation_members om JOIN users u ON u.id = om.user_id
+        WHERE om.organisation_id = $1 AND lower(u.email) = lower($2)`,
+      [organisation.id, email.trim()],
+    );
+    if (alreadyMember) {
+      return res.status(409).json({ error: 'That person is already a member of this workspace.' });
+    }
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const invitation = await repo.createTeamInvitation({
+      organisationId: organisation.id,
+      email: email.trim(),
+      role,
+      invitedBy: user.id,
+      rawToken,
+      expiresAt,
+    });
+
+    void sendEmail({
+      to: email.trim(),
+      ...organisationInviteEmail({
+        organisationName: organisation.name,
+        inviterName: user.fullName,
+        role,
+        acceptUrl: appUrlFor(`/team/accept/${rawToken}`),
+        expiresAt: expiresAt.toISOString(),
+      }),
+    });
+
+    await repo.logAuditEvent(undefined, {
+      organisationId: organisation.id,
+      entityType: 'workspace',
+      entityId: invitation.id,
+      actorType: 'user',
+      actorId: user.id,
+      actorName: user.fullName,
+      eventType: 'TEAM_MEMBER_INVITED',
+      metadata: { email: email.trim(), role },
+    });
+
+    res.status(201).json(invitation);
+  }),
+);
+
+apiRouter.delete(
+  '/team/invitations/:id',
+  requireAuth,
+  requireRole('owner', 'admin'),
+  ah(async (req, res) => {
+    await repo.revokeTeamInvitation(req.params.id, req.auth!.organisation.id);
+    res.json({ success: true });
+  }),
+);
+
+/** Public lookup so the accept page can show who/what before the person signs in. */
+apiRouter.get(
+  '/team/invitations/token/:rawToken',
+  ah(async (req, res) => {
+    const invitation = await repo.findTeamInvitationByToken(req.params.rawToken);
+    if (!invitation) return res.status(404).json({ error: 'This invitation is invalid or has expired.' });
+    res.json({ email: invitation.email, role: invitation.role, organisationId: invitation.organisationId });
+  }),
+);
+
+/** Accepting requires being signed in as the invited email — someone without an account is sent to register first. */
+apiRouter.post(
+  '/team/invitations/token/:rawToken/accept',
+  requireAuth,
+  ah(async (req, res) => {
+    const invitation = await repo.findTeamInvitationByToken(req.params.rawToken);
+    if (!invitation) return res.status(404).json({ error: 'This invitation is invalid or has expired.' });
+    if (invitation.email.toLowerCase() !== req.auth!.user.email.toLowerCase()) {
+      return res.status(403).json({ error: 'This invitation was sent to a different email address.' });
+    }
+
+    const member = await repo.acceptTeamInvitation(invitation.id, req.auth!.user.id);
+
+    await repo.logAuditEvent(undefined, {
+      organisationId: invitation.organisationId,
+      entityType: 'workspace',
+      entityId: member.id,
+      actorType: 'user',
+      actorId: req.auth!.user.id,
+      actorName: req.auth!.user.fullName,
+      eventType: 'TEAM_MEMBER_JOINED',
+      metadata: { role: invitation.role },
+    });
+
+    res.json({ success: true, member });
+  }),
+);
+
+apiRouter.patch(
+  '/team/members/:id',
+  requireAuth,
+  requireRole('owner'),
+  ah(async (req, res) => {
+    const { role } = req.body || {};
+    if (role !== 'admin' && role !== 'member') {
+      return res.status(400).json({ error: 'Role must be "admin" or "member".' });
+    }
+    const updated = await repo.updateMemberRole(req.params.id, req.auth!.organisation.id, role);
+    if (!updated) return res.status(404).json({ error: 'Member not found.' });
+    res.json(updated);
+  }),
+);
+
+apiRouter.delete(
+  '/team/members/:id',
+  requireAuth,
+  requireRole('owner'),
+  ah(async (req, res) => {
+    const { organisation } = req.auth!;
+    const member = await queryOne<any>(
+      `SELECT * FROM organisation_members WHERE id = $1 AND organisation_id = $2`,
+      [req.params.id, organisation.id],
+    );
+    if (!member) return res.status(404).json({ error: 'Member not found.' });
+    if (member.role === 'owner') {
+      return res.status(400).json({ error: 'The workspace owner cannot be removed. Transfer ownership first.' });
+    }
+    await repo.removeMember(req.params.id, organisation.id);
+    res.json({ success: true });
+  }),
+);
+
+// ==========================================
 // 2. DASHBOARD HYDRATION
 // ==========================================
+
+/** ZAR-free storage allowance per plan, in bytes. Mirrors the figures in PLAN_COMPARISON_ROWS. */
+const STORAGE_LIMIT_BYTES: Record<string, number | null> = {
+  free: 100 * 1024 * 1024,
+  starter: 2 * 1024 * 1024 * 1024,
+  professional: 25 * 1024 * 1024 * 1024,
+  label: 100 * 1024 * 1024 * 1024,
+  enterprise: null,
+};
+
+/**
+ * Everything the dashboard needs beyond the raw song list: evidence-strength
+ * rollup, storage usage, and plan/team usage against limits. Shared between
+ * GET /me and GET /dashboard/metrics so both stay consistent.
+ */
+async function buildEvidenceAndUsageSummary(orgId: string, plan: ReturnType<typeof getPlan>) {
+  const [orgDocuments, songCount, teamMemberCount] = await Promise.all([
+    repo.listDocumentsForOrganisation(orgId),
+    repo.countSongsForOrganisation(orgId),
+    repo.countOrganisationMembers(orgId),
+  ]);
+
+  const bySong = new Map<string, typeof orgDocuments>();
+  for (const doc of orgDocuments) {
+    const list = bySong.get(doc.songId) || [];
+    list.push(doc);
+    bySong.set(doc.songId, list);
+  }
+
+  const songIds = await repo.listSongs(orgId).then((songs) => songs.map((s) => s.id));
+  let missingDocumentationCount = 0;
+  let scoreSum = 0;
+  for (const songId of songIds) {
+    const docs = bySong.get(songId) || [];
+    const strength = computeEvidenceStrength(docs);
+    if (docs.length === 0) missingDocumentationCount += 1;
+    scoreSum += strength.score;
+  }
+
+  const storageUsedBytes = orgDocuments.reduce((sum, d) => sum + (d.fileSize || 0), 0);
+
+  return {
+    missingDocumentationCount,
+    averageEvidenceScore: songIds.length ? Math.round(scoreSum / songIds.length) : 0,
+    storageUsedBytes,
+    storageLimitBytes: STORAGE_LIMIT_BYTES[plan.id] ?? null,
+    planId: plan.id,
+    songLimit: plan.maxSongs,
+    songCount,
+    teamMemberLimit: plan.maxTeamMembers,
+    teamMemberCount,
+  };
+}
 
 apiRouter.get(
   '/me',
   requireAuth,
   ah(async (req, res) => {
     const orgId = req.auth!.organisation.id;
-    const [songs, metrics, recentActivity] = await Promise.all([
+    const plan = getPlan(req.auth!.organisation.plan);
+    const [songs, metrics, recentActivity, usage] = await Promise.all([
       repo.listSongs(orgId),
       repo.getDashboardMetrics(orgId),
       repo.listOrgAudit(orgId, 15),
+      buildEvidenceAndUsageSummary(orgId, plan),
     ]);
 
     res.json({
@@ -363,6 +938,7 @@ apiRouter.get(
       role: req.auth!.role,
       songs,
       metrics: { ...metrics, recentActivity },
+      usage,
     });
   }),
 );
@@ -372,12 +948,14 @@ apiRouter.get(
   requireAuth,
   ah(async (req, res) => {
     const orgId = req.auth!.organisation.id;
-    const [metrics, songs, recentActivity] = await Promise.all([
+    const plan = getPlan(req.auth!.organisation.plan);
+    const [metrics, songs, recentActivity, usage] = await Promise.all([
       repo.getDashboardMetrics(orgId),
       repo.listSongs(orgId),
       repo.listOrgAudit(orgId, 8),
+      buildEvidenceAndUsageSummary(orgId, plan),
     ]);
-    res.json({ ...metrics, recentSongs: songs.slice(0, 6), recentActivity });
+    res.json({ ...metrics, recentSongs: songs.slice(0, 6), recentActivity, usage });
   }),
 );
 
@@ -409,11 +987,15 @@ apiRouter.post(
     if (plan.maxSongs !== null) {
       const existingCount = await repo.countSongsForOrganisation(organisation.id);
       if (existingCount >= plan.maxSongs) {
+        const upgrade = nextPlan(plan.id);
         return res.status(402).json({
-          error: `You've reached the ${plan.maxSongs}-project limit on the ${plan.name} plan. Upgrade to Pro for unlimited Rights Records.`,
+          error: upgrade
+            ? `You've reached the ${plan.maxSongs}-record limit on the ${plan.name} plan. Upgrade to ${upgrade.name} for ${upgrade.maxSongs === null ? 'unlimited' : `up to ${upgrade.maxSongs}`} Rights Records.`
+            : `You've reached the ${plan.maxSongs}-record limit on the ${plan.name} plan.`,
           code: 'PLAN_LIMIT_REACHED',
           plan: plan.id,
           limit: plan.maxSongs,
+          suggestedPlan: upgrade?.id || null,
         });
       }
     }
@@ -506,6 +1088,7 @@ apiRouter.get(
       invitations,
       agreements,
       documents,
+      evidence: computeEvidenceStrength(documents),
       audit,
     });
   }),
@@ -1827,16 +2410,32 @@ apiRouter.post(
   requireRole('owner'),
   ah(async (req: Request, res: Response) => {
     const { user, organisation } = req.auth!;
+    const { planId, interval } = req.body || {};
 
-    if (organisation.plan === 'pro') {
-      return res.status(400).json({ error: 'This workspace is already on the Pro plan.' });
+    if (!isValidPlanId(planId) || planId === 'free' || planId === 'enterprise') {
+      return res.status(400).json({
+        error: 'Choose Starter, Professional or Label to check out. Enterprise is sales-assisted — contact us instead.',
+      });
+    }
+    if (!isValidBillingInterval(interval)) {
+      return res.status(400).json({ error: 'Billing interval must be "monthly" or "annual".' });
+    }
+    if (organisation.plan === planId && organisation.billingInterval === interval) {
+      return res.status(400).json({ error: `This workspace is already on ${getPlan(planId).name} (${interval}).` });
     }
 
-    const proPlan = PLANS.pro;
+    const targetPlan = getPlan(planId);
+    const price = interval === 'annual' ? targetPlan.priceAnnualZar : targetPlan.priceMonthlyZar;
+    if (price === null) {
+      return res.status(400).json({ error: 'This plan does not have self-serve pricing.' });
+    }
+
     const result = await initializeTransaction({
       email: user.email,
-      amountZarCents: Math.round(proPlan.priceMonthlyZar * 100),
+      amountZarCents: Math.round(price * 100),
       organisationId: organisation.id,
+      planId,
+      interval,
     });
 
     await repo.recordPayment({
@@ -1844,7 +2443,8 @@ apiRouter.post(
       reference: result.reference,
       eventType: 'checkout_initialized',
       status: 'pending',
-      amountZarCents: Math.round(proPlan.priceMonthlyZar * 100),
+      amountZarCents: Math.round(price * 100),
+      payload: { planId, interval },
     });
 
     res.json({ authorizationUrl: result.authorizationUrl, reference: result.reference });
@@ -1877,12 +2477,16 @@ apiRouter.get(
       return res.status(402).json({ error: 'Payment was not successful.', status: result.status });
     }
 
+    const plan = isValidPlanId(result.targetPlan) ? result.targetPlan : 'professional';
+    const interval = isValidBillingInterval(result.billingInterval) ? result.billingInterval : 'monthly';
+
     await repo.setOrganisationPaystackDetails(organisation.id, {
-      plan: 'pro',
+      plan,
+      billingInterval: interval,
       paystackCustomerCode: result.customerCode,
       paystackSubscriptionCode: result.subscriptionCode,
       planRenewsAt: result.subscriptionCode
-        ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // Paystack's webhook corrects this to the real date on subscription.create
+        ? new Date(Date.now() + (interval === 'annual' ? 365 : 30) * 24 * 60 * 60 * 1000) // Paystack's webhook corrects this to the real date on subscription.create
         : null,
     });
 
@@ -1893,10 +2497,10 @@ apiRouter.get(
       actorType: 'user',
       actorName: 'Paystack checkout',
       eventType: 'PLAN_UPGRADED',
-      metadata: { plan: 'pro', reference: result.reference },
+      metadata: { plan, interval, reference: result.reference },
     });
 
-    res.json({ success: true, plan: 'pro' });
+    res.json({ success: true, plan, interval });
   }),
 );
 
@@ -1936,18 +2540,27 @@ apiRouter.post(
       payload: event,
     });
 
+    // Subscription lifecycle events carry the plan in our own metadata
+    // (see initializeTransaction), same as verifyTransaction reads it back.
+    const targetPlan = isValidPlanId(data.metadata?.targetPlan) ? data.metadata.targetPlan : undefined;
+    const targetInterval = isValidBillingInterval(data.metadata?.billingInterval)
+      ? data.metadata.billingInterval
+      : undefined;
+
     if (organisation) {
       switch (event.event) {
         case 'charge.success':
           await repo.setOrganisationPaystackDetails(organisation.id, {
-            plan: 'pro',
+            ...(targetPlan ? { plan: targetPlan } : {}),
+            ...(targetInterval ? { billingInterval: targetInterval } : {}),
             paystackCustomerCode: data.customer?.customer_code,
           });
           break;
 
         case 'subscription.create':
           await repo.setOrganisationPaystackDetails(organisation.id, {
-            plan: 'pro',
+            ...(targetPlan ? { plan: targetPlan } : {}),
+            ...(targetInterval ? { billingInterval: targetInterval } : {}),
             paystackSubscriptionCode: data.subscription_code,
             planRenewsAt: data.next_payment_date ? new Date(data.next_payment_date) : null,
           });

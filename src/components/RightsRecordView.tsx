@@ -25,6 +25,7 @@ import {
   DocumentRecord,
   AuditEvent,
   RightsValidationSummary,
+  EvidenceStrength,
 } from '../types';
 import { OwnershipTab } from './OwnershipTab';
 import { ContributorsTab } from './ContributorsTab';
@@ -43,6 +44,7 @@ interface RightsRecordViewProps {
   invitations: Invitation[];
   agreements: Agreement[];
   documents: DocumentRecord[];
+  evidence?: EvidenceStrength | null;
   audit: AuditEvent[];
   onBack: () => void;
   onUpdateSongMetadata: (data: Partial<Song>) => Promise<void>;
@@ -68,6 +70,7 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
   invitations,
   agreements,
   documents,
+  evidence,
   audit,
   onBack,
   onUpdateSongMetadata,
@@ -522,6 +525,7 @@ export const RightsRecordView: React.FC<RightsRecordViewProps> = ({
           songId={songId}
           currentVersion={currentVersion}
           documents={documents}
+          evidence={evidence}
           onUploadDocument={onUploadDocument}
         />
       )}

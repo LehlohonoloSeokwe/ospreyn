@@ -1,19 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { Users, Building2, Music, ShieldCheck, Loader2, RefreshCw } from 'lucide-react';
 import { api } from '../../lib/api';
+import { PlanDefinition, PlanId } from '../../types';
 
 interface AdminStats {
   totalUsers: number;
   totalOrganisations: number;
   totalSongs: number;
-  freeOrganisations: number;
-  proOrganisations: number;
+  organisationsByPlan: Record<string, number>;
 }
 
 interface AdminOrganisation {
   id: string;
   name: string;
-  plan: 'free' | 'pro';
+  plan: PlanId;
   ownerId: string;
   ownerEmail: string;
   ownerName: string;
@@ -47,6 +47,7 @@ const StatCard: React.FC<{ label: string; value: React.ReactNode; icon: React.El
 
 export const AdminPortalView: React.FC = () => {
   const [stats, setStats] = useState<AdminStats | null>(null);
+  const [plans, setPlans] = useState<Record<string, PlanDefinition>>({});
   const [organisations, setOrganisations] = useState<AdminOrganisation[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,11 +60,12 @@ export const AdminPortalView: React.FC = () => {
     setError(null);
     try {
       const [statsRes, orgsRes, usersRes] = await Promise.all([
-        api.get<{ stats: AdminStats }>('/admin/stats'),
+        api.get<{ stats: AdminStats; plans: Record<string, PlanDefinition> }>('/admin/stats'),
         api.get<AdminOrganisation[]>('/admin/organisations'),
         api.get<AdminUser[]>('/admin/users'),
       ]);
       setStats(statsRes.stats);
+      setPlans(statsRes.plans);
       setOrganisations(orgsRes);
       setUsers(usersRes);
     } catch (err: any) {
@@ -77,28 +79,12 @@ export const AdminPortalView: React.FC = () => {
     void load();
   }, []);
 
-  const handlePlanChange = async (orgId: string, plan: 'free' | 'pro') => {
+  const handlePlanChange = async (orgId: string, plan: PlanId) => {
     setUpdatingOrgId(orgId);
     try {
       await api.post(`/admin/organisations/${orgId}/plan`, { plan });
       setOrganisations((prev) => prev.map((o) => (o.id === orgId ? { ...o, plan } : o)));
-      // Re-derive the free/pro split from the freshly-updated list rather
-      // than recomputing by hand against a stale closure.
-      setStats((prevStats) =>
-        prevStats
-          ? {
-              ...prevStats,
-              freeOrganisations: organisations.reduce(
-                (n, o) => n + ((o.id === orgId ? plan : o.plan) === 'free' ? 1 : 0),
-                0,
-              ),
-              proOrganisations: organisations.reduce(
-                (n, o) => n + ((o.id === orgId ? plan : o.plan) === 'pro' ? 1 : 0),
-                0,
-              ),
-            }
-          : prevStats,
-      );
+      await load(); // re-derive organisationsByPlan from the server rather than hand-rolling the diff
     } catch (err: any) {
       setError(err?.message || 'Could not update plan.');
     } finally {
@@ -140,12 +126,18 @@ export const AdminPortalView: React.FC = () => {
       )}
 
       {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-3">
           <StatCard label="Users" value={stats.totalUsers} icon={Users} />
           <StatCard label="Workspaces" value={stats.totalOrganisations} icon={Building2} />
           <StatCard label="Rights Records" value={stats.totalSongs} icon={Music} />
-          <StatCard label="Free" value={stats.freeOrganisations} icon={Building2} />
-          <StatCard label="Pro" value={stats.proOrganisations} icon={Building2} />
+          {Object.entries(plans).map(([planId, plan]) => (
+            <StatCard
+              key={planId}
+              label={plan.name}
+              value={stats.organisationsByPlan[planId] ?? 0}
+              icon={Building2}
+            />
+          ))}
         </div>
       )}
 
@@ -195,11 +187,14 @@ export const AdminPortalView: React.FC = () => {
                     <select
                       value={org.plan}
                       disabled={updatingOrgId === org.id}
-                      onChange={(e) => handlePlanChange(org.id, e.target.value as 'free' | 'pro')}
+                      onChange={(e) => handlePlanChange(org.id, e.target.value as PlanId)}
                       className="rounded border border-[#2c3444] bg-[#141820] px-2 py-1 text-xs text-white disabled:opacity-50 cursor-pointer"
                     >
-                      <option value="free">Free</option>
-                      <option value="pro">Pro</option>
+                      {Object.entries(plans).map(([planId, plan]) => (
+                        <option key={planId} value={planId}>
+                          {plan.name}
+                        </option>
+                      ))}
                     </select>
                   </td>
                 </tr>
@@ -260,8 +255,9 @@ export const AdminPortalView: React.FC = () => {
       )}
 
       <p className="text-[10px] text-[#5c6574]">
-        Plan changes here take effect immediately. There's no payment processor wired up yet — set
-        a workspace to Pro once you've arranged payment with them outside the app.
+        Plan changes here take effect immediately and bypass Paystack — use this for manual
+        arrangements (EFT, comped accounts, Enterprise deals) or to correct a workspace's plan.
+        Most upgrades happen through the self-serve checkout on the workspace's own dashboard.
       </p>
     </div>
   );

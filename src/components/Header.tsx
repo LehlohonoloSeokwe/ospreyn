@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, LogOut, Settings, ShieldCheck } from 'lucide-react';
+import { Building2, LogOut, Settings, ShieldCheck, Users } from 'lucide-react';
 import { User, Organisation } from '../types';
+import { api } from '../lib/api';
 
 interface HeaderProps {
   user: User | null;
@@ -22,6 +23,19 @@ export const Header: React.FC<HeaderProps> = ({
   onSignOut,
   activeView,
 }) => {
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user?.avatarKey) {
+      setAvatarUrl(null);
+      return;
+    }
+    api
+      .get<{ url: string | null }>('/account/avatar-url')
+      .then((r) => setAvatarUrl(r.url))
+      .catch(() => setAvatarUrl(null));
+  }, [user?.avatarKey]);
+
   return (
     <header className="border-b border-[#222730] bg-[#0c0e12] px-4 py-3 sm:px-6 sticky top-0 z-30">
       <div className="mx-auto flex max-w-7xl items-center justify-between">
@@ -72,8 +86,14 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* User profile */}
           <div className="flex items-center space-x-2.5 border-l border-[#222730] pl-3">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#1e2430] border border-[#2c3444] text-xs font-medium text-[#c5cbd4]">
-              {user?.fullName ? user.fullName[0].toUpperCase() : '?'}
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#1e2430] border border-[#2c3444] text-xs font-medium text-[#c5cbd4]">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+              ) : user?.fullName ? (
+                user.fullName[0].toUpperCase()
+              ) : (
+                '?'
+              )}
             </div>
             <div className="hidden sm:block text-left">
               <div className="text-xs font-medium text-white leading-none">{user?.fullName || ''}</div>
@@ -81,6 +101,14 @@ export const Header: React.FC<HeaderProps> = ({
                 {user?.stageName ? `"${user.stageName}"` : user?.email || ''}
               </div>
             </div>
+            <Link
+              to="/team"
+              title="Team"
+              aria-label="Team"
+              className="flex h-7 w-7 items-center justify-center rounded border border-[#2c3444] bg-[#161b24] text-[#8c94a0] transition-colors hover:border-[#3d495c] hover:text-white cursor-pointer"
+            >
+              <Users className="h-3.5 w-3.5" />
+            </Link>
             {user?.isPlatformAdmin && (
               <Link
                 to="/admin"

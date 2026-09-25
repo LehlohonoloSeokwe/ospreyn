@@ -69,14 +69,31 @@ export interface InitializeTransactionResult {
  * itself; without it, this is a one-off charge and the organisation will
  * need to check out again manually each period.
  */
+/**
+ * Env var name for a given tier + interval's Paystack Plan code, e.g.
+ * PAYSTACK_PLAN_CODE_STARTER_MONTHLY or PAYSTACK_PLAN_CODE_LABEL_ANNUAL.
+ * Free has no code (nothing to charge) and Enterprise is sales-assisted, so
+ * neither goes through this checkout flow at all — see requireRole('owner')
+ * on POST /billing/checkout in routes.ts.
+ */
+function planCodeEnvVar(planId: string, interval: string): string {
+  return `PAYSTACK_PLAN_CODE_${planId.toUpperCase()}_${interval.toUpperCase()}`;
+}
+
+export function paystackPlanCode(planId: string, interval: string): string | undefined {
+  return process.env[planCodeEnvVar(planId, interval)] || undefined;
+}
+
 export async function initializeTransaction(params: {
   email: string;
   amountZarCents: number;
   organisationId: string;
+  planId: string;
+  interval: string;
   metadata?: Record<string, unknown>;
 }): Promise<InitializeTransactionResult> {
   const callbackUrl = process.env.PAYSTACK_CALLBACK_URL;
-  const planCode = process.env.PAYSTACK_PLAN_CODE_PRO;
+  const planCode = paystackPlanCode(params.planId, params.interval);
 
   const json = await paystackRequest<any>('POST', '/transaction/initialize', {
     email: params.email,
@@ -86,6 +103,8 @@ export async function initializeTransaction(params: {
     plan: planCode || undefined,
     metadata: {
       organisationId: params.organisationId,
+      targetPlan: params.planId,
+      billingInterval: params.interval,
       ...params.metadata,
     },
   });
@@ -107,6 +126,9 @@ export interface VerifyTransactionResult {
   subscriptionCode: string | null;
   planCode: string | null;
   organisationId: string | null;
+  /** Which of our tiers/intervals this checkout was for — read back from the metadata we set at init. */
+  targetPlan: string | null;
+  billingInterval: string | null;
   raw: unknown;
 }
 
@@ -127,6 +149,8 @@ export async function verifyTransaction(reference: string): Promise<VerifyTransa
     subscriptionCode: data.plan_object?.plan_code ? data.subscription_code || null : null,
     planCode: data.plan || data.plan_object?.plan_code || null,
     organisationId: data.metadata?.organisationId || null,
+    targetPlan: data.metadata?.targetPlan || null,
+    billingInterval: data.metadata?.billingInterval || null,
     raw: data,
   };
 }

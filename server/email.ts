@@ -229,6 +229,61 @@ export function confirmationNotificationEmail(params: {
   };
 }
 
+export function passwordResetEmail(params: { fullName: string; resetUrl: string; expiresInMinutes: number }) {
+  const { fullName, resetUrl, expiresInMinutes } = params;
+  const html = baseTemplate(`
+    <p style="color:#ffffff;font-size:15px;margin:0 0 8px;">Hi ${escapeHtml(fullName)},</p>
+    <p style="${MUTED} margin:0 0 20px;">
+      Someone asked to reset the password on your Ospreyn account. If that was you, choose a
+      new one below. If it wasn't, you can safely ignore this email — your password hasn't changed.
+    </p>
+    <a href="${resetUrl}" style="${BUTTON_STYLE}">Reset your password</a>
+    <p style="${MUTED} margin:20px 0 0;">This link expires in ${expiresInMinutes} minutes and can only be used once.</p>
+  `);
+  const text = `Hi ${fullName},\n\nSomeone asked to reset the password on your Ospreyn account. If that was you, use this link:\n${resetUrl}\n\nIf it wasn't you, you can ignore this email — your password hasn't changed.\n\nThis link expires in ${expiresInMinutes} minutes and can only be used once.`;
+  return { subject: 'Reset your Ospreyn password', html, text };
+}
+
+export function emailVerificationEmail(params: { fullName: string; verifyUrl: string }) {
+  const { fullName, verifyUrl } = params;
+  const html = baseTemplate(`
+    <p style="color:#ffffff;font-size:15px;margin:0 0 8px;">Hi ${escapeHtml(fullName)},</p>
+    <p style="${MUTED} margin:0 0 20px;">
+      Confirm this is your email address so we know where to reach you about your rights records.
+    </p>
+    <a href="${verifyUrl}" style="${BUTTON_STYLE}">Verify email address</a>
+  `);
+  const text = `Hi ${fullName},\n\nConfirm this is your email address: ${verifyUrl}`;
+  return { subject: 'Verify your Ospreyn email address', html, text };
+}
+
+export function organisationInviteEmail(params: {
+  organisationName: string;
+  inviterName: string;
+  role: string;
+  acceptUrl: string;
+  expiresAt: string;
+}) {
+  const { organisationName, inviterName, role, acceptUrl, expiresAt } = params;
+  const expiry = new Date(expiresAt).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  const html = baseTemplate(`
+    <p style="color:#ffffff;font-size:15px;margin:0 0 8px;">Hi,</p>
+    <p style="${MUTED} margin:0 0 20px;">
+      <strong style="color:#c5cbd4;">${escapeHtml(inviterName)}</strong> invited you to join
+      <strong style="color:#c5cbd4;">${escapeHtml(organisationName)}</strong>'s workspace on Ospreyn as
+      a${role === 'admin' ? 'n' : ''} <strong style="color:#c5cbd4;">${escapeHtml(role)}</strong>.
+    </p>
+    <a href="${acceptUrl}" style="${BUTTON_STYLE}">Accept invitation</a>
+    <p style="${MUTED} margin:20px 0 0;">This invitation expires on ${expiry}. If you don't have an Ospreyn account yet, you'll be asked to create one with this same email address first.</p>
+  `);
+  const text = `Hi,\n\n${inviterName} invited you to join ${organisationName}'s workspace on Ospreyn as a ${role}.\n\nAccept: ${acceptUrl}\n\nThis invitation expires on ${expiry}. If you don't have an Ospreyn account yet, you'll be asked to create one with this same email address first.`;
+  return { subject: `${inviterName} invited you to ${organisationName} on Ospreyn`, html, text };
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')

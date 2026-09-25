@@ -151,6 +151,7 @@ export async function resolveAuth(req: Request): Promise<AuthContext | null> {
 
   const row = await queryOne<any>(
     `SELECT u.id, u.email, u.full_name, u.stage_name, u.phone, u.is_platform_admin,
+            u.avatar_key, u.bio, u.social_links, u.email_verified_at,
             u.created_at, u.updated_at
        FROM sessions s
        JOIN users u ON u.id = s.user_id
@@ -220,6 +221,53 @@ export function requireRole(...roles: WorkspaceRole[]) {
     }
     next();
   };
+}
+
+// --- Single-use action tokens (password reset, email verification) ---
+// Same shape as session tokens: 32 random bytes, only the SHA-256 hash
+// stored, raw value shown/emailed exactly once. See user_action_tokens in
+// schema.sql.
+
+export async function createActionToken(
+  userId: string,
+  purpose: 'password_reset' | 'email_verification',
+  ttlMinutes: number,
+): Promise<{ rawToken: string; expiresAt: Date }> {
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
+
+  // Invalidate any earlier outstanding token of the same purpose for this
+  // user first — only the most recently requested reset/verification link
+  // should work, so an old email lying around in an inbox can't be replayed
+  // after a newer one was issued.
+  await query(
+    `UPDATE user_action_tokens SET used_at = now()
+      WHERE user_id = $1 AND purpose = $2 AND used_at IS NULL`,
+    [userId, purpose],
+  );
+
+  await query(
+    `INSERT INTO user_action_tokens (user_id, purpose, token_hash, expires_at)
+     VALUES ($1, $2, $3, $4)`,
+    [userId, purpose, tokenHash, expiresAt],
+  );
+
+  return { rawToken, expiresAt };
+}
+
+/** Consumes a token if valid, returning the user id it belonged to, or null. */
+export async function consumeActionToken(
+  rawToken: string,
+  purpose: 'password_reset' | 'email_verification',
+): Promise<string | null> {
+  const row = await queryOne<{ id: string; user_id: string }>(
+    `UPDATE user_action_tokens SET used_at = now()
+      WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > now()
+      RETURNING id, user_id`,
+    [hashToken(rawToken), purpose],
+  );
+  return row?.user_id || null;
 }
 
 /**

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Music2,
   CheckCircle2,
@@ -8,8 +8,12 @@ import {
   ShieldCheck,
   FileText,
   Plus,
+  FolderOpen,
+  HardDrive,
+  Users,
+  Gauge,
 } from 'lucide-react';
-import { Song, AuditEvent, User, Organisation, PlanDefinition } from '../types';
+import { Song, AuditEvent, User, Organisation, PlanDefinition, DashboardSummary, BillingInterval } from '../types';
 
 interface DashboardViewProps {
   user: User | null;
@@ -17,30 +21,56 @@ interface DashboardViewProps {
   metrics: {
     totalSongs: number;
     completedCount: number;
+    disputedCount: number;
     needsAttentionCount: number;
     awaitingConfirmationCount: number;
     recentActivity: AuditEvent[];
   };
+  usage?: DashboardSummary | null;
   currentOrg?: Organisation | null;
   plan?: PlanDefinition;
+  plans?: Record<string, PlanDefinition>;
   onSelectSong: (songId: string) => void;
   onOpenCreateModal: () => void;
-  onUpgradeToPro: () => void;
+  onCheckout: (planId: string, interval?: BillingInterval) => void;
   upgrading?: boolean;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let i = -1;
+  do {
+    value /= 1024;
+    i++;
+  } while (value >= 1024 && i < units.length - 1);
+  return `${value.toFixed(1)} ${units[i]}`;
+}
+
+function nextPlanOf(plans: Record<string, PlanDefinition> | undefined, planId?: string) {
+  const order = ['free', 'starter', 'professional', 'label', 'enterprise'];
+  const idx = order.indexOf(planId || 'free');
+  if (idx === -1 || idx === order.length - 1) return null;
+  return plans?.[order[idx + 1]] || null;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   user,
   songs,
   metrics,
+  usage,
   currentOrg,
   plan,
+  plans,
   onSelectSong,
   onOpenCreateModal,
-  onUpgradeToPro,
+  onCheckout,
   upgrading,
 }) => {
   const atLimit = Boolean(plan?.maxSongs != null && metrics.totalSongs >= plan.maxSongs);
+  const upgrade = nextPlanOf(plans, currentOrg?.plan);
+
   const getStatusBadge = (status: Song['status']) => {
     switch (status) {
       case 'completed':
@@ -68,7 +98,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         return (
           <span className="inline-flex items-center gap-1 rounded bg-rose-950/70 border border-rose-500/30 px-2 py-0.5 text-[11px] font-medium text-rose-400">
             <AlertTriangle className="h-3 w-3" />
-            Change Requested
+            Dispute — Change Requested
           </span>
         );
       case 'draft':
@@ -81,13 +111,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   };
 
+  if (songs.length === 0) {
+    return <ZeroState user={user} onOpenCreateModal={onOpenCreateModal} />;
+  }
+
   return (
     <div className="space-y-8">
       {/* Top Greeting & North Star Metric Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-[#1f242e] pb-6">
         <div>
           <h1 className="text-xl font-semibold text-white tracking-tight">
-            Good afternoon, {user?.fullName ? user.fullName.split(' ')[0] : 'Hloni'}
+            Welcome back{user?.fullName ? `, ${user.fullName.split(' ')[0]}` : ''}
           </h1>
           <p className="text-xs text-[#8c94a0] mt-1 font-mono">
             Catalogue Overview · Independent Rights Infrastructure
@@ -114,21 +148,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {atLimit && (
         <div className="rounded border border-amber-500/25 bg-amber-500/5 px-4 py-3 text-xs text-[#c5cbd4] flex items-center justify-between gap-3 flex-wrap">
           <span>
-            You've used all {plan?.maxSongs} Rights Records on the {plan?.name} plan. Upgrade to
-            Pro for unlimited Rights Records.
+            You've used all {plan?.maxSongs} Rights Records on the {plan?.name} plan.
+            {upgrade ? ` Upgrade to ${upgrade.name} for ${upgrade.maxSongs === null ? 'unlimited' : `up to ${upgrade.maxSongs}`} Rights Records.` : ''}
           </span>
-          <button
-            type="button"
-            onClick={onUpgradeToPro}
-            disabled={upgrading}
-            className="shrink-0 rounded bg-white text-[#0c0e12] px-3 py-1.5 font-semibold hover:bg-[#d4d4d8] disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
-          >
-            {upgrading ? 'Redirecting to Paystack…' : 'Upgrade to Pro — R249/mo'}
-          </button>
+          {upgrade && (
+            <button
+              type="button"
+              onClick={() => onCheckout(upgrade.id, 'monthly')}
+              disabled={upgrading}
+              className="shrink-0 rounded bg-white text-[#0c0e12] px-3 py-1.5 font-semibold hover:bg-[#d4d4d8] disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+            >
+              {upgrading ? 'Redirecting to Paystack…' : `Upgrade to ${upgrade.name} — R${upgrade.priceMonthlyZar}/mo`}
+            </button>
+          )}
         </div>
       )}
 
-      {/* Metrics Row (Strictly Aligned with Technical Handoff Section 21) */}
+      {/* Metrics Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         <div className="rounded border border-[#202530] bg-[#101318] p-4">
           <div className="text-[11px] font-mono uppercase tracking-wider text-[#798394]">Total Records</div>
@@ -148,12 +184,41 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="text-[11px] text-amber-500/70 mt-1">Invited collaborators reviewing</div>
         </div>
 
-        <div className="rounded border border-[#262c38] bg-[#12161f] p-4">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-[#97a2b5]">Needs Attention</div>
-          <div className="text-2xl font-bold text-white mt-1.5">{metrics.needsAttentionCount}</div>
-          <div className="text-[11px] text-[#798394] mt-1">Draft or change requested</div>
+        <div className="rounded border border-[#3b1a1a] bg-[#190c0c] p-4">
+          <div className="text-[11px] font-mono uppercase tracking-wider text-rose-400/90">Ownership Disputes</div>
+          <div className="text-2xl font-bold text-rose-400 mt-1.5">{metrics.disputedCount}</div>
+          <div className="text-[11px] text-rose-500/70 mt-1">Change requested by a contributor</div>
         </div>
       </div>
+
+      {/* Evidence, storage, team usage */}
+      {usage && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+          <UsageCard
+            icon={FileText}
+            label="Evidence strength (avg.)"
+            value={`${usage.averageEvidenceScore}/100`}
+            hint={
+              usage.missingDocumentationCount > 0
+                ? `${usage.missingDocumentationCount} record${usage.missingDocumentationCount === 1 ? '' : 's'} with no documents at all`
+                : 'Every record has at least one document'
+            }
+            warn={usage.missingDocumentationCount > 0}
+          />
+          <UsageCard
+            icon={HardDrive}
+            label="Storage used"
+            value={formatBytes(usage.storageUsedBytes)}
+            hint={usage.storageLimitBytes ? `of ${formatBytes(usage.storageLimitBytes)} on ${plan?.name}` : 'Unlimited on this plan'}
+          />
+          <UsageCard
+            icon={Users}
+            label="Team seats"
+            value={usage.teamMemberLimit ? `${usage.teamMemberCount} / ${usage.teamMemberLimit}` : `${usage.teamMemberCount}`}
+            hint={usage.teamMemberLimit ? `${plan?.name} plan` : 'Unlimited seats'}
+          />
+        </div>
+      )}
 
       {/* Main Content: Catalogue Table & Activity Log */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -172,18 +237,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   onClick={() => onSelectSong(song.id)}
                   className="p-4 flex items-center justify-between hover:bg-[#141820] transition-colors cursor-pointer group"
                 >
-                  <div className="space-y-1 pr-4">
+                  <div className="space-y-1 pr-4 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-white group-hover:text-[#ffffff] transition-colors">
+                      <span className="text-sm font-semibold text-white group-hover:text-[#ffffff] transition-colors truncate">
                         {song.title}
                       </span>
-                      <span className="text-[10px] font-mono text-[#798394] bg-[#161a22] px-1.5 py-0.5 rounded border border-[#232936]">
+                      <span className="text-[10px] font-mono text-[#798394] bg-[#161a22] px-1.5 py-0.5 rounded border border-[#232936] shrink-0">
                         v{song.currentVersionNumber}.0
                       </span>
                     </div>
                     <div className="text-xs text-[#8c94a0] flex items-center gap-3">
-                      <span>{song.primaryArtist}</span>
-                      {song.isrc && <span className="font-mono text-[11px] text-[#6b7585]">{song.isrc}</span>}
+                      <span className="truncate">{song.primaryArtist}</span>
+                      {song.isrc && <span className="font-mono text-[11px] text-[#6b7585] shrink-0">{song.isrc}</span>}
                     </div>
                   </div>
 
@@ -231,6 +296,99 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+};
+
+const UsageCard: React.FC<{
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+  hint: string;
+  warn?: boolean;
+}> = ({ icon: Icon, label, value, hint, warn }) => (
+  <div className="rounded border border-[#1f242e] bg-[#0e1116] p-4 flex items-start gap-3">
+    <div className={`rounded p-2 ${warn ? 'bg-amber-500/10 text-amber-400' : 'bg-[#161a22] text-[#8c94a0]'}`}>
+      <Icon className="h-4 w-4" />
+    </div>
+    <div>
+      <div className="text-[11px] text-[#798394]">{label}</div>
+      <div className="text-lg font-semibold text-white">{value}</div>
+      <div className={`text-[11px] mt-0.5 ${warn ? 'text-amber-400/80' : 'text-[#5e6675]'}`}>{hint}</div>
+    </div>
+  </div>
+);
+
+/**
+ * Shown the moment a brand-new workspace has zero songs — the very first
+ * screen a new user sees after signup. Explains what a Rights Record is and
+ * why the workflow (splits → confirmations → documentation) exists, instead
+ * of dropping them onto a blank dashboard.
+ */
+const ZeroState: React.FC<{ user: User | null; onOpenCreateModal: () => void }> = ({
+  user,
+  onOpenCreateModal,
+}) => {
+  const [step, setStep] = useState(0);
+  const steps = [
+    {
+      icon: Music2,
+      title: 'A Rights Record is your song\u2019s single source of truth',
+      body: 'One place per song for who owns what — composition and master shares, every contributor, and a version history that never gets overwritten.',
+    },
+    {
+      icon: Gauge,
+      title: 'Ownership percentages have to total exactly 100%',
+      body: 'Composition (the song itself) and master (the recording) are tracked separately, and each has to add up to 100% before you can move a record forward.',
+    },
+    {
+      icon: Users,
+      title: 'Contributors confirm their own share',
+      body: 'Each collaborator gets a private link to review and confirm — or dispute — their percentage. No accounts needed on their end, and every response is timestamped.',
+    },
+    {
+      icon: FolderOpen,
+      title: 'Documentation backs it all up',
+      body: 'Split sheets, contracts, session notes — anything that helps prove ownership if it\u2019s ever questioned. Ospreyn scores how well each song is documented.',
+    },
+  ];
+
+  return (
+    <div className="mx-auto max-w-2xl py-10">
+      <div className="text-center">
+        <h1 className="text-xl font-semibold text-white">
+          Welcome{user?.fullName ? `, ${user.fullName.split(' ')[0]}` : ''} — let's document your first release
+        </h1>
+        <p className="mt-2 text-sm text-[#8c94a0]">
+          Here's how Ospreyn protects your ownership, in four short steps.
+        </p>
+      </div>
+
+      <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {steps.map((s, i) => (
+          <div
+            key={s.title}
+            className={`rounded border p-4 transition-colors ${
+              step === i ? 'border-white/40 bg-[#12151c]' : 'border-[#1f242e] bg-[#0e1116]'
+            }`}
+            onMouseEnter={() => setStep(i)}
+          >
+            <s.icon className="h-4 w-4 text-white" />
+            <div className="mt-2 text-sm font-semibold text-white">{s.title}</div>
+            <p className="mt-1 text-xs leading-relaxed text-[#8c94a0]">{s.body}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-8 flex justify-center">
+        <button
+          onClick={onOpenCreateModal}
+          className="inline-flex items-center justify-center gap-2 rounded bg-white hover:bg-[#e2e2e2] text-[#0c0e12] px-5 py-2.5 text-sm font-semibold tracking-tight transition-colors shadow-sm"
+        >
+          <Plus className="h-4 w-4" />
+          Create your first Rights Record
+        </button>
       </div>
     </div>
   );

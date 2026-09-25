@@ -158,6 +158,9 @@ CREATE TABLE IF NOT EXISTS agreements (
 );
 
 -- 13. Documents (Document Vault: Private object storage metadata)
+-- Category list intentionally broad — see the "Evidence Strength" scoring in
+-- server/evidence.ts, which groups these into what a dispute, a royalty
+-- claim, or a CMO registration actually needs to see.
 CREATE TABLE IF NOT EXISTS documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     song_id UUID REFERENCES songs(id) ON DELETE CASCADE NOT NULL,
@@ -167,7 +170,7 @@ CREATE TABLE IF NOT EXISTS documents (
     mime_type VARCHAR(100) NOT NULL,
     file_size BIGINT NOT NULL,
     checksum VARCHAR(64) NOT NULL, -- SHA-256 checksum
-    category VARCHAR(50) NOT NULL CHECK (category IN ('split_agreement', 'producer_agreement', 'master_recording', 'lyrics_sheet', 'supporting_document', 'other')),
+    category VARCHAR(50) NOT NULL CHECK (category IN ('split_agreement', 'contract', 'licensing_agreement', 'producer_agreement', 'master_recording', 'lyrics_sheet', 'session_notes', 'stems_project_files', 'invoice', 'isrc_documentation', 'copyright_registration', 'correspondence', 'supporting_document', 'other')),
     uploaded_by UUID REFERENCES users(id) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
@@ -315,3 +318,92 @@ CREATE TABLE IF NOT EXISTS payments (
 );
 CREATE INDEX IF NOT EXISTS idx_payments_org ON payments(organisation_id);
 CREATE INDEX IF NOT EXISTS idx_payments_reference ON payments(reference);
+
+-- Widen the documents.category check to the fuller evidence taxonomy above
+-- (older deployments were created before session notes / stems / invoices /
+-- ISRC / copyright-registration / correspondence existed as categories).
+DO $$ BEGIN
+    ALTER TABLE documents DROP CONSTRAINT IF EXISTS documents_category_check;
+    ALTER TABLE documents ADD CONSTRAINT documents_category_check
+        CHECK (category IN ('split_agreement', 'contract', 'licensing_agreement', 'producer_agreement', 'master_recording', 'lyrics_sheet', 'session_notes', 'stems_project_files', 'invoice', 'isrc_documentation', 'copyright_registration', 'correspondence', 'supporting_document', 'other'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- ==========================================
+-- Profiles: avatar, bio, social links, email verification
+-- ==========================================
+-- avatar_key is an object-storage key (see server/storage.ts) — the same
+-- private-bucket/presigned-URL model as the document vault, not a public
+-- URL, so avatars never require a separate public bucket or CDN.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_key VARCHAR(512);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS social_links JSONB DEFAULT '{}'::jsonb NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+
+-- Single-use tokens for password reset and email verification. Only the hash
+-- is stored (same pattern as sessions.token_hash and invitations.token_hash)
+-- so a database dump never hands over a usable reset link.
+CREATE TABLE IF NOT EXISTS user_action_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE NOT NULL,
+    purpose VARCHAR(30) NOT NULL CHECK (purpose IN ('password_reset', 'email_verification')),
+    token_hash VARCHAR(64) UNIQUE NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_user_action_tokens_hash ON user_action_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_user_action_tokens_user ON user_action_tokens(user_id, purpose);
+
+-- ==========================================
+-- Team invitations (workspace membership by email, not yet an account holder)
+-- ==========================================
+-- organisation_members (table 3, above) only covers people who already have
+-- a row in users. An invitation lets an owner/admin name someone by email —
+-- who may not have signed up yet — before they hold any membership. Accepting
+-- converts it into an organisation_members row and marks the invite used.
+CREATE TABLE IF NOT EXISTS organisation_invitations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organisation_id UUID REFERENCES organisations(id) ON DELETE CASCADE NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'member')),
+    token_hash VARCHAR(64) UNIQUE NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')),
+    invited_by UUID REFERENCES users(id) NOT NULL,
+    invited_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    accepted_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_org_invitations_org ON organisation_invitations(organisation_id);
+CREATE INDEX IF NOT EXISTS idx_org_invitations_token ON organisation_invitations(token_hash);
+
+-- ==========================================
+-- Plans: five tiers + monthly/annual billing interval
+-- ==========================================
+-- Existing organisations on the old two-tier scheme map 'pro' -> the closest
+-- equivalent in the new lineup before the check constraint is tightened, so
+-- this migration never leaves a row violating its own new constraint.
+UPDATE organisations SET plan = 'professional' WHERE plan = 'pro';
+
+DO $$ BEGIN
+    ALTER TABLE organisations DROP CONSTRAINT IF EXISTS organisations_plan_check;
+    ALTER TABLE organisations ADD CONSTRAINT organisations_plan_check
+        CHECK (plan IN ('free', 'starter', 'professional', 'label', 'enterprise'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+ALTER TABLE organisations ADD COLUMN IF NOT EXISTS billing_interval VARCHAR(10) NOT NULL DEFAULT 'monthly';
+DO $$ BEGIN
+    ALTER TABLE organisations ADD CONSTRAINT organisations_billing_interval_check
+        CHECK (billing_interval IN ('monthly', 'annual'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- ==========================================
+-- Operational note: automated backups
+-- ==========================================
+-- This flag is NOT a real backup mechanism — Ospreyn cannot provision your
+-- database provider's backups from application code. It exists purely so
+-- the in-product "Trust & security" panel can tell a user the honest state
+-- (configured vs. not) instead of silently claiming protection that may not
+-- exist. Set DATABASE_BACKUPS_CONFIGURED=true in the API environment (see
+-- .env.example) once you have actually turned on point-in-time recovery or
+-- scheduled pg_dump backups with your provider — see DEPLOYMENT.md.

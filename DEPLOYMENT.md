@@ -89,6 +89,27 @@ Deploy, then come back and add your final Netlify domain to `CORS_ORIGINS` and `
 
 ---
 
+## 5. Automated database backups (do this before real users sign up)
+
+The application cannot turn this on for you — it has no code path that can provision your
+database provider's backup feature. Before opening registration to real people:
+
+1. Enable point-in-time recovery or scheduled backups with your Postgres provider (Neon, Supabase
+   and RDS all offer this in their dashboard; confirm the retention window meets your needs).
+2. Set `DATABASE_BACKUPS_CONFIGURED=true` on the API host.
+
+Until step 2 is set, the in-product "Trust & security" panel (Account settings) truthfully tells
+users backups are not yet configured — it never claims protection the deployment doesn't actually
+have.
+
+## 6. Email provider
+
+Password resets, email verification, contributor invitations and team invitations all send real
+email via `server/email.ts`. Set one of `RESEND_API_KEY`, `SENDGRID_API_KEY` or
+`POSTMARK_SERVER_TOKEN` (see `.env.example`) and a `FROM_EMAIL` on a domain you control. Without
+one of these set, outgoing email is written to the server log instead of delivered — fine for
+local development, not for production.
+
 ## Verifying the deployment
 
 1. `curl https://your-api-host.com/api/health` returns `{"status":"ok","database":"connected"}`.
